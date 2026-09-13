@@ -34,22 +34,46 @@ st.caption(
 
 
 # ---------------------------------------------------------------------------------
-# STEP 1-2: UPLOAD
+# STEP 1: TEMPLATE — disimpan permanen di backend (tidak upload ulang tiap kali).
+# Taruh file template kamu di repo GitHub yang SAMA dengan app.py, dengan nama
+# persis "template.xlsx". Kalau nanti mau ganti/update template, tinggal replace
+# file itu di repo (commit baru), tanpa perlu ubah kode.
 # ---------------------------------------------------------------------------------
-col1, col2 = st.columns(2)
-with col1:
-    source_file = st.file_uploader(
-        "1. Drag & drop laporan keuangan TERBARU (Excel atau PDF)",
-        type=["xlsx", "xls", "pdf"],
-    )
-with col2:
-    template_file = st.file_uploader(
-        "2. Drag & drop TEMPLATE yang mau di-update (Excel)",
-        type=["xlsx"],
-    )
+import os
 
-if not source_file or not template_file:
-    st.info("Upload kedua file dulu untuk lanjut.")
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template.xlsx")
+
+if not os.path.exists(TEMPLATE_PATH):
+    st.error(
+        f"File template belum ada di repo. Upload file Excel template kamu ke repo GitHub "
+        f"dengan nama persis **template.xlsx** (satu folder dengan app.py), lalu commit — "
+        f"nanti Streamlit Cloud otomatis rebuild dan template-nya kebaca dari sana."
+    )
+    st.stop()
+
+with open(TEMPLATE_PATH, "rb") as f:
+    tpl_bytes_on_disk = f.read()
+
+
+class _TemplateFileStub:
+    """Biar kode di bawah yang tadinya baca dari st.file_uploader tetap jalan tanpa ubah banyak."""
+    name = "template.xlsx"
+
+
+template_file = _TemplateFileStub()
+
+st.caption(f"📌 Template terpasang: `template.xlsx` (di-update terakhir kali file ini di-commit ke repo).")
+
+# ---------------------------------------------------------------------------------
+# STEP 2: user tinggal drag & drop laporan keuangan terbaru
+# ---------------------------------------------------------------------------------
+source_file = st.file_uploader(
+    "Drag & drop laporan keuangan TERBARU (Excel atau PDF)",
+    type=["xlsx", "xls", "pdf"],
+)
+
+if not source_file:
+    st.info("Upload laporan keuangan terbaru untuk lanjut.")
     st.stop()
 
 
@@ -59,6 +83,7 @@ if not source_file or not template_file:
 PERIOD_PATTERN = re.compile(
     r"(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s*'?\d{2,4}",
     re.IGNORECASE,
+
 )
 
 
@@ -82,41 +107,42 @@ def find_header_row(ws, max_scan_rows=40, max_scan_cols=60):
     return best_row, best_count
 
 
-def find_label_column(ws, header_row, sample_rows=200):
-    """
-    Cari kolom teks (label akun) di sebelah kiri kolom-kolom angka.
-    Ambil kolom paling KANAN di antara kolom-kolom teks (biasanya label paling
-    detail/spesifik ada di kolom paling kanan sebelum kolom angka, sesuai pola
-    'No. | (indent kosong) | label' pada template acuan).
-    """
-    text_cols = []
-    for c in range(1, ws.max_column + 1):
-        text_hits, total = 0, 0
-        for r in range(header_row + 1, min(header_row + 1 + sample_rows, ws.max_row) + 1):
-            v = ws.cell(r, c).value
-            if v is None:
-                continue
-            total += 1
-            if isinstance(v, str) and not looks_like_period(v):
-                text_hits += 1
-        if total > 0 and text_hits / total > 0.6 and text_hits >= 3:
-            text_cols.append(c)
-    return max(text_cols) if text_cols else None
-
-
-def find_last_period_column(ws, header_row):
-    last_col = None
-    for c in range(1, ws.max_column + 1):
+def get_period_columns(ws, header_row, max_scan_cols=200):
+    """Semua kolom di baris header yang isinya label periode (mis. 'Mar 24')."""
+    cols = []
+    for c in range(1, min(max_scan_cols, ws.max_column) + 1):
         if looks_like_period(ws.cell(header_row, c).value):
-            last_col = c
-    return last_col
+            cols.append(c)
+    return cols
+
+
+def row_label(ws, row, label_zone_end_col):
+    """
+    Ambil label akun untuk satu baris dengan mengambil teks PALING KANAN yang
+    ditemukan di antara kolom 1 s.d. sebelum kolom periode pertama. Ini dipakai
+    (bukan 1 kolom label yang fix) karena banyak template akuntansi menaruh teks
+    di kolom berbeda-beda tergantung level indentasi (mis. akun utama di kolom D,
+    sub-akun di kolom E, dst) — jadi kolom label tunggal gampang salah deteksi.
+    """
+    label = None
+    for c in range(1, label_zone_end_col):
+        v = ws.cell(row, c).value
+        if isinstance(v, str) and v.strip() != "" and not looks_like_period(v):
+            label = v.strip()
+    return label
+
+
+def extract_month_year(text):
+    m = re.match(r"^\s*([A-Za-z]+)[a-z]*\.?\s*'?\s*(\d{2,4})\s*$", str(text).strip())
+    if not m:
+        return None
+    return m.group(1), m.group(2)
 
 
 # ---------------------------------------------------------------------------------
 # PARSE TEMPLATE
 # ---------------------------------------------------------------------------------
-tpl_bytes = template_file.read()
-wb = openpyxl.load_workbook(io.BytesIO(tpl_bytes), data_only=False)
+wb = openpyxl.load_workbook(io.BytesIO(tpl_bytes_on_disk), data_only=False)
 
 sheet_name = st.selectbox("Pilih sheet template yang mau di-update:", wb.sheetnames)
 ws = wb[sheet_name]
@@ -129,41 +155,119 @@ if header_row is None or header_hits == 0:
     )
     st.stop()
 
-label_col = find_label_column(ws, header_row)
-last_period_col = find_last_period_column(ws, header_row)
-
-if label_col is None or last_period_col is None:
-    st.error("Gagal mendeteksi kolom label akun / kolom periode terakhir di sheet ini.")
+period_cols = get_period_columns(ws, header_row)
+if not period_cols:
+    st.error("Gagal mendeteksi kolom-kolom periode di sheet ini.")
     st.stop()
 
-st.success(
-    f"Terdeteksi: baris header periode = baris {header_row}, "
-    f"kolom label akun = {get_column_letter(label_col)}, "
-    f"kolom periode terakhir = {get_column_letter(last_period_col)} "
-    f"('{ws.cell(header_row, last_period_col).value}')."
-)
+first_period_col = min(period_cols)
+last_period_col = max(period_cols)
 
-new_period_label = st.text_input(
-    "Label periode baru untuk kolom yang akan ditambahkan (mis. 'Sep 25'):",
-    value="",
-)
 
-# Kumpulkan baris-baris akun di template (dari bawah header sampai baris kosong panjang)
+def period_fill_ratio(ws, col, header_row, sample=300):
+    """Seberapa banyak baris di bawah header yang sudah terisi di kolom ini."""
+    total, filled, count, r = 0, 0, 0, header_row + 1
+    while r <= ws.max_row and count < sample:
+        if ws.cell(r, col).value is not None:
+            filled += 1
+        total += 1
+        count += 1
+        r += 1
+    return filled / total if total else 0
+
+
+fill_ratios = {c: period_fill_ratio(ws, c, header_row) for c in period_cols}
+# kolom periode terakhir yang SUDAH ada isinya (bukan cuma judulnya doang)
+filled_period_cols = [c for c in period_cols if fill_ratios[c] > 0.05]
+last_filled_col = max(filled_period_cols) if filled_period_cols else last_period_col
+
+# Kasus umum di template ini: kolom periode terakhir sudah dibuat judulnya (mis. "Dec 25")
+# tapi datanya masih kosong -> itu berarti kolom TUJUAN yang mau diisi, bukan kolom
+# "periode sebelumnya" yang datanya jadi acuan pola/formula.
+is_placeholder_col = (last_period_col != last_filled_col) and (fill_ratios[last_period_col] < 0.05)
+style_source_col = last_filled_col  # kolom acuan pola format/formula ("periode sebelumnya")
+
+if is_placeholder_col:
+    target_col = last_period_col
+    st.info(
+        f"Kolom periode **'{ws.cell(header_row, last_period_col).value}'** "
+        f"({get_column_letter(last_period_col)}) sudah ada di template tapi datanya masih "
+        f"kosong -> sistem akan mengisi kolom itu langsung (bukan menambah kolom baru). "
+        f"Pola/format diambil dari kolom sebelumnya, **"
+        f"'{ws.cell(header_row, last_filled_col).value}'** ({get_column_letter(last_filled_col)})."
+    )
+else:
+    target_col = last_period_col + 1
+    st.success(
+        f"Terdeteksi: baris header periode = baris {header_row}, "
+        f"kolom periode terakhir yang sudah terisi = {get_column_letter(last_period_col)} "
+        f"('{ws.cell(header_row, last_period_col).value}'). Sistem akan menambah kolom baru "
+        f"setelahnya."
+    )
+
+# --- Deteksi format label periode dari header yang sudah ada (mis. 'Mar 23', 'Dec 25') ---
+month_order, seen_months = [], set()
+year_digit_len = 2
+for c in period_cols:
+    parsed = extract_month_year(ws.cell(header_row, c).value)
+    if parsed:
+        mon, yr = parsed
+        if mon not in seen_months:
+            seen_months.add(mon)
+            month_order.append(mon)
+        year_digit_len = len(yr)
+
+if is_placeholder_col:
+    # kolom tujuan sudah punya judul -> pakai itu sebagai default, tinggal dikonfirmasi
+    existing_label = str(ws.cell(header_row, target_col).value).strip()
+    st.markdown("**Konfirmasi periode yang mau diisi:**")
+    new_period_label = st.text_input(
+        "Judul kolom periode (sudah otomatis kebaca dari template, tinggal dikonfirmasi/ubah kalau perlu):",
+        value=existing_label,
+    )
+else:
+    last_parsed = extract_month_year(ws.cell(header_row, last_period_col).value)
+    last_year_num = int(last_parsed[1]) if last_parsed else datetime.now().year % 100
+    base_year_full = 2000 + last_year_num if (year_digit_len == 2 and last_year_num < 100) else last_year_num
+
+    st.markdown("**Pilih periode baru yang mau ditambahkan sebagai kolom di template ini:**")
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        chosen_month = st.selectbox(
+            "Kuartal (bulan akhir kuartal, ikut format yang sudah ada di template)",
+            options=month_order if month_order else ["Mar", "Jun", "Sep", "Dec"],
+        )
+    with pc2:
+        year_options = [base_year_full + d for d in (-1, 0, 1, 2)]
+        chosen_year_full = st.selectbox(
+            "Tahun",
+            options=year_options,
+            index=1,  # default: satu periode setelah yang terakhir di template
+        )
+    year_str = str(chosen_year_full)[-2:] if year_digit_len == 2 else str(chosen_year_full)
+    new_period_label = f"{chosen_month} {year_str}"
+    st.caption(
+        f"Kolom baru akan diberi judul **'{new_period_label}'** "
+        f"(mengikuti format periode yang sudah dipakai di template ini)."
+    )
+
+# Kumpulkan baris-baris akun di template (dari bawah header sampai baris kosong panjang),
+# memakai kolom ACUAN (periode sebelumnya yang datanya sudah ada) untuk cek formula/nilai.
 template_rows = []
 empty_streak = 0
 r = header_row + 1
 while r <= ws.max_row and empty_streak < 15:
-    label = ws.cell(r, label_col).value
-    prev_val = ws.cell(r, last_period_col).value
+    label = row_label(ws, r, first_period_col)
+    prev_val = ws.cell(r, style_source_col).value
     if label is None and prev_val is None:
         empty_streak += 1
     else:
         empty_streak = 0
-        if label is not None and str(label).strip() != "":
+        if label is not None:
             template_rows.append(
                 {
                     "row": r,
-                    "label": str(label).strip(),
+                    "label": label,
                     "prev_value": prev_val,
                     "is_formula": isinstance(prev_val, str) and str(prev_val).startswith("="),
                 }
@@ -238,7 +342,7 @@ if not source_pairs:
     st.error("Tidak ada data (label + angka) yang berhasil diekstrak dari laporan baru.")
     st.stop()
 
-st.caption(f"{len(source_pairs)} baris akun terbaca dari laporan keuangan baru.")
+st.success(f"✅ File '{source_file.name}' berhasil dibaca — {len(source_pairs)} baris akun terdeteksi.")
 
 
 # ---------------------------------------------------------------------------------
@@ -332,36 +436,36 @@ def shift_formula(formula: str, src_col: int, dst_col: int, row: int) -> str:
     return Translator(formula, origin=src_coord).translate_formula(dst_coord)
 
 
-apply_clicked = st.button("Terapkan ke Template", type="primary", disabled=not new_period_label.strip())
-if not new_period_label.strip():
-    st.info("Isi dulu label periode baru di atas (mis. 'Sep 25') untuk mengaktifkan tombol apply.")
+apply_clicked = st.button(f"🚀 Generate Laporan — Tambah Kolom '{new_period_label}'", type="primary")
 
 if apply_clicked:
-    new_col = last_period_col + 1
+    new_col = target_col
 
-    # copy lebar kolom & style header dari kolom periode terakhir
-    ws.column_dimensions[get_column_letter(new_col)].width = ws.column_dimensions[
-        get_column_letter(last_period_col)
-    ].width
+    if not is_placeholder_col:
+        # copy lebar kolom & style header dari kolom periode terakhir (kolom baru beneran)
+        ws.column_dimensions[get_column_letter(new_col)].width = ws.column_dimensions[
+            get_column_letter(style_source_col)
+        ].width
 
-    header_src = ws.cell(header_row, last_period_col)
     header_dst = ws.cell(header_row, new_col)
     header_dst.value = new_period_label.strip()
-    copy_cell_style(header_src, header_dst)
+    if not is_placeholder_col:
+        copy_cell_style(ws.cell(header_row, style_source_col), header_dst)
 
     edited_lookup = {row["Baris Template"]: row for row in edited_df.to_dict("records")}
 
     applied, skipped = 0, 0
     for tr in template_rows:
         row_num = tr["row"]
-        src_cell = ws.cell(row_num, last_period_col)
+        src_cell = ws.cell(row_num, style_source_col)
         dst_cell = ws.cell(row_num, new_col)
-        copy_cell_style(src_cell, dst_cell)
+        if not is_placeholder_col:
+            copy_cell_style(src_cell, dst_cell)
 
         info = edited_lookup.get(row_num)
 
         if tr["is_formula"]:
-            dst_cell.value = shift_formula(str(tr["prev_value"]), last_period_col, new_col, row_num)
+            dst_cell.value = shift_formula(str(tr["prev_value"]), style_source_col, new_col, row_num)
             applied += 1
         else:
             val = info["Nilai"] if info else None
@@ -376,13 +480,27 @@ if apply_clicked:
 
     st.success(f"Selesai. {applied} baris terisi, {skipped} baris dilewati (belum ada nilai).")
 
+    st.subheader(f"📄 Preview hasil kompilasi — kolom '{new_period_label}'")
+    preview_rows = []
+    for tr in template_rows:
+        val = ws.cell(tr["row"], new_col).value
+        preview_rows.append(
+            {
+                "Baris": tr["row"],
+                "Akun": tr["label"],
+                "Tipe": "Formula" if tr["is_formula"] else "Nilai",
+                f"{new_period_label}": val,
+            }
+        )
+    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, height=350)
+
     out = io.BytesIO()
     wb.save(out)
     out.seek(0)
 
     fname = f"{template_file.name.rsplit('.', 1)[0]}_updated_{datetime.now().strftime('%Y%m%d')}.xlsx"
     st.download_button(
-        "Download template hasil update",
+        "⬇️ Download template hasil update (.xlsx)",
         data=out,
         file_name=fname,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
