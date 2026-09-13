@@ -28,8 +28,24 @@ def _collapse_spaced_letters(s: str) -> str:
     return " ".join(out)
 
 
+LEADING_ENUM_PATTERN = re.compile(
+    r"^\s*(?:\(?[0-9]{1,3}\)?|\(?[a-zA-Z]\)?|\(?[ivxIVX]{1,6}\)?)[\.\)]\s+"
+)
+
+
+def strip_leading_enumerators(s: str) -> str:
+    """Buang nomor/huruf urut di depan label (mis. '1.', 'a.', 'iv.') — dilakukan
+    berkali-kali karena kadang ada 2 level sekaligus (jarang, tapi aman dicek)."""
+    prev = None
+    while prev != s:
+        prev = s
+        s = LEADING_ENUM_PATTERN.sub("", s)
+    return s
+
+
 def clean_label(s: str) -> str:
-    s = _collapse_spaced_letters(str(s))
+    s = strip_leading_enumerators(str(s).strip())
+    s = _collapse_spaced_letters(s)
     s = re.sub(r"[^\w\s]", " ", s.lower())
     s = re.sub(r"\s+", " ", s).strip()
     return s
@@ -184,16 +200,39 @@ def load_template_readonly(path, mtime):
         return openpyxl.load_workbook(io.BytesIO(fh.read()), data_only=False)
 
 
+def quick_account_row_count(ws, header_row, first_period_col, cap=20, max_check=500):
+    """Hitung cepat berapa banyak baris akun asli di bawah header (berhenti lebih
+    awal begitu sudah cukup untuk membuktikan sheet ini valid)."""
+    count, empty_streak, checked = 0, 0, 0
+    r = header_row + 1
+    while r <= ws.max_row and empty_streak < 15 and checked < max_check and count < cap:
+        if row_label(ws, r, first_period_col) is not None:
+            count += 1
+            empty_streak = 0
+        else:
+            empty_streak += 1
+        r += 1
+        checked += 1
+    return count
+
+
 @st.cache_data(show_spinner=False)
 def list_valid_bank_sheets(path, mtime):
-    """Cuma tampilkan sheet yang memang berformat laporan per-bank (punya baris
-    header periode + baris akun) — sheet lain (ringkasan/analisis dsb) disembunyikan
-    dari dropdown biar user gak bingung pilih dari puluhan opsi."""
+    """Cuma tampilkan sheet yang memang berformat laporan per-bank ASLI: punya
+    baris header periode DAN cukup banyak baris akun di bawahnya (>=15). Ini
+    menyingkirkan sheet ringkasan/analisis/notes yang kebetulan juga punya
+    kolom bertanggal tapi bukan template per-bank."""
     wb_check = load_template_readonly(path, mtime)
     valid = []
     for sn in wb_check.sheetnames:
-        hr, hits = find_header_row(wb_check[sn])
-        if hr is not None and hits >= 3:
+        wsx = wb_check[sn]
+        hr, hits = find_header_row(wsx)
+        if hr is None or hits < 3:
+            continue
+        period_cols = get_period_columns(wsx, hr)
+        if not period_cols:
+            continue
+        if quick_account_row_count(wsx, hr, min(period_cols)) >= 15:
             valid.append(sn)
     return valid
 
@@ -342,7 +381,11 @@ if not template_rows:
 
 
 # ---------------------------------------------------------------------------------
-# PARSE SOURCE (laporan keuangan baru) -> list of (label, value)
+# PARSE SOURCE (laporan keuangan baru) -> list of (label, [nilai1, nilai2, ...])
+# Ditangkap SEMUA angka per baris (bukan cuma yang pertama) karena laporan bank
+# sering punya beberapa kolom sekaligus per baris (mis. Individual 2025 | Individual
+# 2024 | Konsolidasian 2025 | Konsolidasian 2024). User yang pilih kolom ke berapa
+# yang mau dipakai (lihat "Pilih kolom nilai" di bawah).
 # ---------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def parse_source_excel(file_bytes):
@@ -360,9 +403,60 @@ def parse_source_excel(file_bytes):
                     if label is None or len(v.strip()) > len(label):
                         label = v.strip()
                 elif isinstance(v, (int, float)):
-                    values.append(v)
+                    values.append(float(v))
             if label and values:
-                pairs.append((label, values[0]))
+                pairs.append((label, values))
+    return pairs
+
+
+def _clean_number(raw: str):
+    c = str(raw).replace(".", "").replace(",", "").replace("(", "-").replace(")", "").strip()
+    c = re.sub(r"[^\d\-]", "", c)
+    if c in ("", "-"):
+        return None
+    try:
+        return float(c)
+    except ValueError:
+        return None
+
+
+def _pairs_from_table_rows(table):
+    pairs = []
+    for row in table:
+        cells = [c for c in row if c is not None and str(c).strip() != ""]
+        if len(cells) < 2:
+            continue
+        label = str(cells[0]).strip()
+        if looks_like_period(label) or label == "":
+            continue
+        values = [v for v in (_clean_number(c) for c in cells[1:]) if v is not None]
+        if values:
+            pairs.append((label, values))
+    return pairs
+
+
+NUM_TOKEN = re.compile(r"\(?-?\d[\d.,]*\)?")
+
+
+def _pairs_from_text_lines(text):
+    """Fallback kalau ekstraksi tabel gagal/terlalu sedikit: baca per baris teks,
+    ambil bagian sebelum angka pertama sebagai label, SEMUA angka di baris itu
+    sebagai daftar nilai (posisi 1, 2, 3, dst dari kiri). Nomor urut di depan baris
+    (mis. '1. Kas ...') dibuang dulu supaya tidak ketuker jadi dianggap angka nilai."""
+    pairs = []
+    for raw_line in text.split("\n"):
+        line = strip_leading_enumerators(raw_line.strip())
+        if not line or looks_like_period(line):
+            continue
+        nums = list(NUM_TOKEN.finditer(line))
+        if not nums:
+            continue
+        label = line[: nums[0].start()].strip(" .:-")
+        if len(label) < 2 or not re.search(r"[A-Za-z]", label):
+            continue
+        values = [v for v in (_clean_number(n.group()) for n in nums) if v is not None]
+        if values:
+            pairs.append((label, values))
     return pairs
 
 
@@ -371,26 +465,29 @@ def parse_source_pdf(file_bytes):
     pairs = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            tables = page.extract_tables()
-            for table in tables:
-                for row in table:
-                    cells = [c for c in row if c is not None and str(c).strip() != ""]
-                    if len(cells) < 2:
-                        continue
-                    label = str(cells[0]).strip()
-                    if looks_like_period(label) or label == "":
-                        continue
-                    value = None
-                    for c in cells[1:]:
-                        c_clean = str(c).replace(".", "").replace(",", "").replace("(", "-").replace(")", "").strip()
-                        try:
-                            value = float(c_clean)
-                            break
-                        except ValueError:
-                            continue
-                    if value is not None:
-                        pairs.append((label, value))
-    return pairs
+            # Strategi 1: deteksi tabel standar (ada garis pemisah)
+            for table in page.extract_tables():
+                pairs.extend(_pairs_from_table_rows(table))
+            # Strategi 2: deteksi tabel tanpa garis (murni berdasarkan posisi teks)
+            try:
+                for table in page.extract_tables(
+                    {"vertical_strategy": "text", "horizontal_strategy": "text"}
+                ):
+                    pairs.extend(_pairs_from_table_rows(table))
+            except Exception:
+                pass
+            # Strategi 3 (fallback): baca per baris teks biasa
+            text = page.extract_text() or ""
+            pairs.extend(_pairs_from_text_lines(text))
+
+    # Buang duplikat persis (label+nilai-nilai sama) yang muncul dari beberapa strategi
+    seen, unique_pairs = set(), []
+    for label, values in pairs:
+        key = (label.strip().lower(), tuple(values))
+        if key not in seen:
+            seen.add(key)
+            unique_pairs.append((label, values))
+    return unique_pairs
 
 
 src_bytes = source_file.getvalue()
@@ -399,15 +496,40 @@ with st.spinner(f"Membaca '{source_file.name}'..."):
         if not HAS_PDF:
             st.error("pdfplumber belum terinstall. Jalankan: pip install pdfplumber")
             st.stop()
-        source_pairs = parse_source_pdf(src_bytes)
+        raw_source_rows = parse_source_pdf(src_bytes)
     else:
-        source_pairs = parse_source_excel(src_bytes)
+        raw_source_rows = parse_source_excel(src_bytes)
 
-if not source_pairs:
+if not raw_source_rows:
     st.error("Tidak ada data (label + angka) yang berhasil diekstrak dari laporan baru.")
     st.stop()
 
-st.success(f"✅ File '{source_file.name}' berhasil dibaca — {len(source_pairs)} baris akun terdeteksi.")
+st.success(f"✅ File '{source_file.name}' berhasil dibaca — {len(raw_source_rows)} baris akun terdeteksi.")
+
+max_value_cols = max(len(v) for _, v in raw_source_rows)
+st.markdown("**Pilih kolom nilai yang mau dipakai** (kalau satu baris di laporan punya beberapa angka sekaligus, mis. Individual/Konsolidasian x tahun ini/lalu):")
+value_col_idx = st.selectbox(
+    "Ambil angka ke berapa dari kiri, di tiap baris?",
+    options=list(range(1, max_value_cols + 1)),
+    index=0,
+    format_func=lambda i: f"Angka ke-{i}",
+)
+
+with st.expander("🔍 Lihat detail akun & semua angka yang berhasil dibaca dari file", expanded=False):
+    st.caption(
+        "Kolom yang di-highlight (dipilih di atas) itu yang akan dipakai sebagai nilai. "
+        "Kalau labelnya berantakan atau angkanya di kolom yang salah, berarti sumber masalah "
+        "ada di ekstraksi file, bukan di proses matching."
+    )
+    preview_debug = pd.DataFrame(
+        [
+            {"Akun (Laporan Baru)": lbl, **{f"Angka ke-{i+1}": (v[i] if i < len(v) else None) for i in range(max_value_cols)}}
+            for lbl, v in raw_source_rows[:200]
+        ]
+    )
+    st.dataframe(preview_debug, use_container_width=True, height=300)
+
+source_pairs = [(lbl, v[value_col_idx - 1]) for lbl, v in raw_source_rows if len(v) >= value_col_idx]
 
 
 # ---------------------------------------------------------------------------------
