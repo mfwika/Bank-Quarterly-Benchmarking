@@ -9,14 +9,48 @@ import openpyxl
 from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.formula.translate import Translator
 
+def _collapse_spaced_letters(s: str) -> str:
+    """'K a s' -> 'Kas'. Beberapa template menaruh nama akun dengan spasi di
+    antara tiap huruf (kutipan format lama laporan bank) — ini bikin fuzzy
+    matching gagal total kalau tidak dirapikan dulu."""
+    tokens = s.split()
+    out, buf = [], ""
+    for t in tokens:
+        if len(t) == 1 and t.isalpha():
+            buf += t
+        else:
+            if buf:
+                out.append(buf)
+                buf = ""
+            out.append(t)
+    if buf:
+        out.append(buf)
+    return " ".join(out)
+
+
+def clean_label(s: str) -> str:
+    s = _collapse_spaced_letters(str(s))
+    s = re.sub(r"[^\w\s]", " ", s.lower())
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 try:
     from rapidfuzz import fuzz
+
     def similarity(a: str, b: str) -> float:
-        return fuzz.token_sort_ratio(a, b)
+        a2, b2 = clean_label(a), clean_label(b)
+        return max(
+            fuzz.token_sort_ratio(a2, b2),
+            fuzz.token_set_ratio(a2, b2),
+            fuzz.partial_ratio(a2, b2),
+        )
 except ImportError:
     import difflib
+
     def similarity(a: str, b: str) -> float:
-        return difflib.SequenceMatcher(None, a, b).ratio() * 100
+        a2, b2 = clean_label(a), clean_label(b)
+        return difflib.SequenceMatcher(None, a2, b2).ratio() * 100
 
 try:
     import pdfplumber
@@ -51,16 +85,6 @@ if not os.path.exists(TEMPLATE_PATH):
     )
     st.stop()
 
-with open(TEMPLATE_PATH, "rb") as f:
-    tpl_bytes_on_disk = f.read()
-
-
-class _TemplateFileStub:
-    """Biar kode di bawah yang tadinya baca dari st.file_uploader tetap jalan tanpa ubah banyak."""
-    name = "template.xlsx"
-
-
-template_file = _TemplateFileStub()
 
 st.caption(f"📌 Template terpasang: `template.xlsx` (di-update terakhir kali file ini di-commit ke repo).")
 
@@ -140,11 +164,49 @@ def extract_month_year(text):
 
 
 # ---------------------------------------------------------------------------------
-# PARSE TEMPLATE
+# PARSE TEMPLATE (di-cache supaya file besar ini TIDAK diparse ulang setiap kali
+# ada interaksi di halaman — ini penyebab utama app terasa lambat sebelumnya)
 # ---------------------------------------------------------------------------------
-wb = openpyxl.load_workbook(io.BytesIO(tpl_bytes_on_disk), data_only=False)
+TEMPLATE_MTIME = os.path.getmtime(TEMPLATE_PATH)
 
-sheet_name = st.selectbox("Pilih sheet template yang mau di-update:", wb.sheetnames)
+
+@st.cache_data(show_spinner=False)
+def read_template_bytes(path, mtime):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+@st.cache_resource(show_spinner=False)
+def load_template_readonly(path, mtime):
+    """Workbook ini HANYA untuk dibaca (deteksi, matching, preview) — jangan
+    ditulisi, karena objeknya dipakai bersama (cache) lintas sesi/user."""
+    with open(path, "rb") as fh:
+        return openpyxl.load_workbook(io.BytesIO(fh.read()), data_only=False)
+
+
+@st.cache_data(show_spinner=False)
+def list_valid_bank_sheets(path, mtime):
+    """Cuma tampilkan sheet yang memang berformat laporan per-bank (punya baris
+    header periode + baris akun) — sheet lain (ringkasan/analisis dsb) disembunyikan
+    dari dropdown biar user gak bingung pilih dari puluhan opsi."""
+    wb_check = load_template_readonly(path, mtime)
+    valid = []
+    for sn in wb_check.sheetnames:
+        hr, hits = find_header_row(wb_check[sn])
+        if hr is not None and hits >= 3:
+            valid.append(sn)
+    return valid
+
+
+with st.spinner("Memindai sheet bank yang tersedia di template..."):
+    wb = load_template_readonly(TEMPLATE_PATH, TEMPLATE_MTIME)
+    valid_sheets = list_valid_bank_sheets(TEMPLATE_PATH, TEMPLATE_MTIME)
+
+if not valid_sheets:
+    st.error("Tidak ada sheet yang terdeteksi sebagai laporan per-bank di template ini.")
+    st.stop()
+
+sheet_name = st.selectbox("Pilih bank yang mau di-update:", valid_sheets)
 ws = wb[sheet_name]
 
 header_row, header_hits = find_header_row(ws)
@@ -282,6 +344,7 @@ if not template_rows:
 # ---------------------------------------------------------------------------------
 # PARSE SOURCE (laporan keuangan baru) -> list of (label, value)
 # ---------------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
 def parse_source_excel(file_bytes):
     swb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     pairs = []
@@ -303,6 +366,7 @@ def parse_source_excel(file_bytes):
     return pairs
 
 
+@st.cache_data(show_spinner=False)
 def parse_source_pdf(file_bytes):
     pairs = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -329,14 +393,15 @@ def parse_source_pdf(file_bytes):
     return pairs
 
 
-src_bytes = source_file.read()
-if source_file.name.lower().endswith(".pdf"):
-    if not HAS_PDF:
-        st.error("pdfplumber belum terinstall. Jalankan: pip install pdfplumber")
-        st.stop()
-    source_pairs = parse_source_pdf(src_bytes)
-else:
-    source_pairs = parse_source_excel(src_bytes)
+src_bytes = source_file.getvalue()
+with st.spinner(f"Membaca '{source_file.name}'..."):
+    if source_file.name.lower().endswith(".pdf"):
+        if not HAS_PDF:
+            st.error("pdfplumber belum terinstall. Jalankan: pip install pdfplumber")
+            st.stop()
+        source_pairs = parse_source_pdf(src_bytes)
+    else:
+        source_pairs = parse_source_excel(src_bytes)
 
 if not source_pairs:
     st.error("Tidak ada data (label + angka) yang berhasil diekstrak dari laporan baru.")
@@ -439,51 +504,58 @@ def shift_formula(formula: str, src_col: int, dst_col: int, row: int) -> str:
 apply_clicked = st.button(f"🚀 Generate Laporan — Tambah Kolom '{new_period_label}'", type="primary")
 
 if apply_clicked:
-    new_col = target_col
+    with st.spinner("Menulis kolom baru ke template... (tidak lama)"):
+        # Buat salinan workbook yang FRESH khusus untuk ditulisi — bukan objek
+        # yang di-cache (load_template_readonly), supaya tidak ada perubahan yang
+        # "nempel" ke cache bersama dan bocor ke user/sesi lain.
+        fresh_bytes = read_template_bytes(TEMPLATE_PATH, TEMPLATE_MTIME)
+        wb_out = openpyxl.load_workbook(io.BytesIO(fresh_bytes), data_only=False)
+        ws_out = wb_out[sheet_name]
 
-    if not is_placeholder_col:
-        # copy lebar kolom & style header dari kolom periode terakhir (kolom baru beneran)
-        ws.column_dimensions[get_column_letter(new_col)].width = ws.column_dimensions[
-            get_column_letter(style_source_col)
-        ].width
+        new_col = target_col
 
-    header_dst = ws.cell(header_row, new_col)
-    header_dst.value = new_period_label.strip()
-    if not is_placeholder_col:
-        copy_cell_style(ws.cell(header_row, style_source_col), header_dst)
-
-    edited_lookup = {row["Baris Template"]: row for row in edited_df.to_dict("records")}
-
-    applied, skipped = 0, 0
-    for tr in template_rows:
-        row_num = tr["row"]
-        src_cell = ws.cell(row_num, style_source_col)
-        dst_cell = ws.cell(row_num, new_col)
         if not is_placeholder_col:
-            copy_cell_style(src_cell, dst_cell)
+            ws_out.column_dimensions[get_column_letter(new_col)].width = ws_out.column_dimensions[
+                get_column_letter(style_source_col)
+            ].width
 
-        info = edited_lookup.get(row_num)
+        header_dst = ws_out.cell(header_row, new_col)
+        header_dst.value = new_period_label.strip()
+        if not is_placeholder_col:
+            copy_cell_style(ws_out.cell(header_row, style_source_col), header_dst)
 
-        if tr["is_formula"]:
-            dst_cell.value = shift_formula(str(tr["prev_value"]), style_source_col, new_col, row_num)
-            applied += 1
-        else:
-            val = info["Nilai"] if info else None
-            if val in (None, "", "-"):
-                skipped += 1
-                continue
-            try:
-                dst_cell.value = float(val)
-            except (TypeError, ValueError):
-                dst_cell.value = val
-            applied += 1
+        edited_lookup = {row["Baris Template"]: row for row in edited_df.to_dict("records")}
+
+        applied, skipped = 0, 0
+        for tr in template_rows:
+            row_num = tr["row"]
+            src_cell = ws_out.cell(row_num, style_source_col)
+            dst_cell = ws_out.cell(row_num, new_col)
+            if not is_placeholder_col:
+                copy_cell_style(src_cell, dst_cell)
+
+            info = edited_lookup.get(row_num)
+
+            if tr["is_formula"]:
+                dst_cell.value = shift_formula(str(tr["prev_value"]), style_source_col, new_col, row_num)
+                applied += 1
+            else:
+                val = info["Nilai"] if info else None
+                if val in (None, "", "-"):
+                    skipped += 1
+                    continue
+                try:
+                    dst_cell.value = float(val)
+                except (TypeError, ValueError):
+                    dst_cell.value = val
+                applied += 1
 
     st.success(f"Selesai. {applied} baris terisi, {skipped} baris dilewati (belum ada nilai).")
 
     st.subheader(f"📄 Preview hasil kompilasi — kolom '{new_period_label}'")
     preview_rows = []
     for tr in template_rows:
-        val = ws.cell(tr["row"], new_col).value
+        val = ws_out.cell(tr["row"], new_col).value
         preview_rows.append(
             {
                 "Baris": tr["row"],
@@ -495,10 +567,10 @@ if apply_clicked:
     st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, height=350)
 
     out = io.BytesIO()
-    wb.save(out)
+    wb_out.save(out)
     out.seek(0)
 
-    fname = f"{template_file.name.rsplit('.', 1)[0]}_updated_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    fname = f"{sheet_name}_updated_{datetime.now().strftime('%Y%m%d')}.xlsx"
     st.download_button(
         "⬇️ Download template hasil update (.xlsx)",
         data=out,
