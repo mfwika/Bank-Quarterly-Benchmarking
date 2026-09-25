@@ -1,701 +1,418 @@
+"""Auto-Update Template Benchmarking Bank.
+
+Alur:
+1. Template (template.xlsx) sudah tersimpan di repo / backend.
+2. User upload laporan keuangan publikasi (PDF / Excel) — boleh beberapa bank sekaligus.
+3. Sistem otomatis: tebak bank (sheet), tebak periode, baca akun Neraca, Laba Rugi &
+   Struktur Modal (KPMM), identifikasi akun ke baris template (alias + pola angka +
+   nama akun), pilih kolom angka yang benar (konsolidasian / periode berjalan).
+4. User review & koreksi di tabel (opsional) -> cek rekonsiliasi total.
+5. Generate: kolom periode di-isi / ditambah (formula ikut diperpanjang) -> download.
+"""
+import hashlib
 import io
-import re
-import copy
+import os
+import warnings
 from datetime import datetime
 
-import streamlit as st
-import pandas as pd
 import openpyxl
-from openpyxl.utils import get_column_letter, column_index_from_string
-from openpyxl.formula.translate import Translator
+import pandas as pd
+import streamlit as st
+from openpyxl.utils import get_column_letter
 
-def _collapse_spaced_letters(s: str) -> str:
-    """'K a s' -> 'Kas'. Beberapa template menaruh nama akun dengan spasi di
-    antara tiap huruf (kutipan format lama laporan bank) — ini bikin fuzzy
-    matching gagal total kalau tidak dirapikan dulu."""
-    tokens = s.split()
-    out, buf = [], ""
-    for t in tokens:
-        if len(t) == 1 and t.isalpha():
-            buf += t
-        else:
-            if buf:
-                out.append(buf)
-                buf = ""
-            out.append(t)
-    if buf:
-        out.append(buf)
-    return " ".join(out)
-
-
-LEADING_ENUM_PATTERN = re.compile(
-    r"^\s*(?:\(?[0-9]{1,3}\)?|\(?[a-zA-Z]\)?|\(?[ivxIVX]{1,6}\)?)[\.\)]\s+"
-)
-
-
-def strip_leading_enumerators(s: str) -> str:
-    """Buang nomor/huruf urut di depan label (mis. '1.', 'a.', 'iv.') — dilakukan
-    berkali-kali karena kadang ada 2 level sekaligus (jarang, tapi aman dicek)."""
-    prev = None
-    while prev != s:
-        prev = s
-        s = LEADING_ENUM_PATTERN.sub("", s)
-    return s
-
-
-def clean_label(s: str) -> str:
-    s = strip_leading_enumerators(str(s).strip())
-    s = _collapse_spaced_letters(s)
-    s = re.sub(r"[^\w\s]", " ", s.lower())
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-try:
-    from rapidfuzz import fuzz
-
-    def similarity(a: str, b: str) -> float:
-        a2, b2 = clean_label(a), clean_label(b)
-        return max(
-            fuzz.token_sort_ratio(a2, b2),
-            fuzz.token_set_ratio(a2, b2),
-            fuzz.partial_ratio(a2, b2),
-        )
-except ImportError:
-    import difflib
-
-    def similarity(a: str, b: str) -> float:
-        a2, b2 = clean_label(a), clean_label(b)
-        return difflib.SequenceMatcher(None, a2, b2).ratio() * 100
-
-try:
-    import pdfplumber
-    HAS_PDF = True
-except ImportError:
-    HAS_PDF = False
-
+from bankbench.aliases import MAPPINGS_PATH, add_learned, load_learned, merged_aliases, save_learned
+from bankbench.banks import detect_bank, sheet_display
+from bankbench.matcher import Matcher, reconcile
+from bankbench.periods import detect_report_period, format_period_label
+from bankbench.source_parser import parse_source
+from bankbench.template_model import SECTION_NAMES, load_bank_models
+from bankbench.writer import apply_to_workbook
 
 st.set_page_config(page_title="Auto-Update Template Benchmarking", layout="wide")
 st.title("Auto-Update Template Benchmarking")
 st.caption(
-    "Upload laporan keuangan terbaru + template -> sistem cocokkan akun -> "
-    "kamu konfirmasi -> sistem update template dengan kolom periode baru."
+    "Upload laporan keuangan publikasi bank → sistem mengenali bank, periode & akun "
+    "(Neraca, Laba Rugi, Struktur Modal) → review → template ter-update dengan kolom periode baru."
 )
-
-
-# ---------------------------------------------------------------------------------
-# STEP 1: TEMPLATE — disimpan permanen di backend (tidak upload ulang tiap kali).
-# Taruh file template kamu di repo GitHub yang SAMA dengan app.py, dengan nama
-# persis "template.xlsx". Kalau nanti mau ganti/update template, tinggal replace
-# file itu di repo (commit baru), tanpa perlu ubah kode.
-# ---------------------------------------------------------------------------------
-import os
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template.xlsx")
-
 if not os.path.exists(TEMPLATE_PATH):
     st.error(
-        f"File template belum ada di repo. Upload file Excel template kamu ke repo GitHub "
-        f"dengan nama persis **template.xlsx** (satu folder dengan app.py), lalu commit — "
-        f"nanti Streamlit Cloud otomatis rebuild dan template-nya kebaca dari sana."
+        "File template belum ada. Taruh file Excel template dengan nama persis **template.xlsx** "
+        "di folder yang sama dengan main.py (di repo), lalu commit."
     )
     st.stop()
-
-
-st.caption(f"📌 Template terpasang: `template.xlsx` (di-update terakhir kali file ini di-commit ke repo).")
-
-# ---------------------------------------------------------------------------------
-# STEP 2: user tinggal drag & drop laporan keuangan terbaru
-# ---------------------------------------------------------------------------------
-source_file = st.file_uploader(
-    "Drag & drop laporan keuangan TERBARU (Excel atau PDF)",
-    type=["xlsx", "xls", "pdf"],
-)
-
-if not source_file:
-    st.info("Upload laporan keuangan terbaru untuk lanjut.")
-    st.stop()
-
-
-# ---------------------------------------------------------------------------------
-# HELPER: cari baris header periode (baris yang berisi banyak label seperti "Mar 24")
-# ---------------------------------------------------------------------------------
-PERIOD_PATTERN = re.compile(
-    r"(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s*'?\d{2,4}",
-    re.IGNORECASE,
-
-)
-
-
-def looks_like_period(value) -> bool:
-    if value is None:
-        return False
-    s = str(value).strip()
-    return bool(PERIOD_PATTERN.search(s)) and len(s) <= 15
-
-
-def find_header_row(ws, max_scan_rows=40, max_scan_cols=60):
-    """Cari baris yang paling banyak mengandung label periode (mis. 'Mar 24')."""
-    best_row, best_count = None, 0
-    for r in range(1, min(max_scan_rows, ws.max_row) + 1):
-        count = 0
-        for c in range(1, min(max_scan_cols, ws.max_column) + 1):
-            if looks_like_period(ws.cell(r, c).value):
-                count += 1
-        if count > best_count:
-            best_row, best_count = r, count
-    return best_row, best_count
-
-
-def get_period_columns(ws, header_row, max_scan_cols=200):
-    """Semua kolom di baris header yang isinya label periode (mis. 'Mar 24')."""
-    cols = []
-    for c in range(1, min(max_scan_cols, ws.max_column) + 1):
-        if looks_like_period(ws.cell(header_row, c).value):
-            cols.append(c)
-    return cols
-
-
-def row_label(ws, row, label_zone_end_col):
-    """
-    Ambil label akun untuk satu baris dengan mengambil teks PALING KANAN yang
-    ditemukan di antara kolom 1 s.d. sebelum kolom periode pertama. Ini dipakai
-    (bukan 1 kolom label yang fix) karena banyak template akuntansi menaruh teks
-    di kolom berbeda-beda tergantung level indentasi (mis. akun utama di kolom D,
-    sub-akun di kolom E, dst) — jadi kolom label tunggal gampang salah deteksi.
-    """
-    label = None
-    for c in range(1, label_zone_end_col):
-        v = ws.cell(row, c).value
-        if isinstance(v, str) and v.strip() != "" and not looks_like_period(v):
-            label = v.strip()
-    return label
-
-
-def extract_month_year(text):
-    m = re.match(r"^\s*([A-Za-z]+)[a-z]*\.?\s*'?\s*(\d{2,4})\s*$", str(text).strip())
-    if not m:
-        return None
-    return m.group(1), m.group(2)
-
-
-# ---------------------------------------------------------------------------------
-# PARSE TEMPLATE (di-cache supaya file besar ini TIDAK diparse ulang setiap kali
-# ada interaksi di halaman — ini penyebab utama app terasa lambat sebelumnya)
-# ---------------------------------------------------------------------------------
 TEMPLATE_MTIME = os.path.getmtime(TEMPLATE_PATH)
+
+QUARTER_MONTHS = [3, 6, 9, 12]
+QUARTER_NAMES = {3: "Q1 (Mar)", 6: "Q2 (Jun)", 9: "Q3 (Sep)", 12: "Q4 (Dec)"}
+SOURCE_NONE = "(kosong / tidak diisi)"
+
+
+# ---------------------------------------------------------------------------------
+# cache
+# ---------------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def get_models(path, mtime):
+    return load_bank_models(path)
 
 
 @st.cache_data(show_spinner=False)
-def read_template_bytes(path, mtime):
+def get_template_bytes(path, mtime):
     with open(path, "rb") as fh:
         return fh.read()
 
 
-@st.cache_resource(show_spinner=False)
-def load_template_readonly(path, mtime):
-    """Workbook ini HANYA untuk dibaca (deteksi, matching, preview) — jangan
-    ditulisi, karena objeknya dipakai bersama (cache) lintas sesi/user."""
-    with open(path, "rb") as fh:
-        return openpyxl.load_workbook(io.BytesIO(fh.read()), data_only=False)
+@st.cache_data(show_spinner=False, max_entries=30)
+def parse_cached(name, data):
+    return parse_source(name, data)
 
 
-def quick_account_row_count(ws, header_row, first_period_col, cap=20, max_check=500):
-    """Hitung cepat berapa banyak baris akun asli di bawah header (berhenti lebih
-    awal begitu sudah cukup untuk membuktikan sheet ini valid)."""
-    count, empty_streak, checked = 0, 0, 0
-    r = header_row + 1
-    while r <= ws.max_row and empty_streak < 15 and checked < max_check and count < cap:
-        if row_label(ws, r, first_period_col) is not None:
-            count += 1
-            empty_streak = 0
-        else:
-            empty_streak += 1
-        r += 1
-        checked += 1
-    return count
+def file_key(f):
+    return hashlib.md5(f.getvalue()).hexdigest()[:10]
 
 
-@st.cache_data(show_spinner=False)
-def list_valid_bank_sheets(path, mtime):
-    """Cuma tampilkan sheet yang memang berformat laporan per-bank ASLI: punya
-    baris header periode DAN cukup banyak baris akun di bawahnya (>=15). Ini
-    menyingkirkan sheet ringkasan/analisis/notes yang kebetulan juga punya
-    kolom bertanggal tapi bukan template per-bank."""
-    wb_check = load_template_readonly(path, mtime)
-    valid = []
-    for sn in wb_check.sheetnames:
-        wsx = wb_check[sn]
-        hr, hits = find_header_row(wsx)
-        if hr is None or hits < 3:
-            continue
-        period_cols = get_period_columns(wsx, hr)
-        if not period_cols:
-            continue
-        if quick_account_row_count(wsx, hr, min(period_cols)) >= 15:
-            valid.append(sn)
-    return valid
+def fmt_num(v):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    return f"{v:,.0f}".replace(",", ".")
 
 
-with st.spinner("Memindai sheet bank yang tersedia di template..."):
-    wb = load_template_readonly(TEMPLATE_PATH, TEMPLATE_MTIME)
-    valid_sheets = list_valid_bank_sheets(TEMPLATE_PATH, TEMPLATE_MTIME)
-
-if not valid_sheets:
-    st.error("Tidak ada sheet yang terdeteksi sebagai laporan per-bank di template ini.")
+with st.spinner("Membaca struktur template (sekali saja, lalu di-cache)..."):
+    models = get_models(TEMPLATE_PATH, TEMPLATE_MTIME)
+if not models:
+    st.error("Tidak ada sheet bank (berisi NERACA / LABA RUGI / CAPITAL ADEQUACY) yang terdeteksi di template.")
     st.stop()
 
-sheet_name = st.selectbox("Pilih bank yang mau di-update:", valid_sheets)
-ws = wb[sheet_name]
+if "learned" not in st.session_state:
+    st.session_state.learned = load_learned()
+aliases = merged_aliases(st.session_state.learned)
 
-header_row, header_hits = find_header_row(ws)
-if header_row is None or header_hits == 0:
-    st.error(
-        "Tidak menemukan baris header periode (mis. 'Mar 24') di sheet ini. "
-        "Coba pilih sheet lain, atau cek format template."
+with st.sidebar:
+    st.header("ℹ️ Cara kerja")
+    st.markdown(
+        "- **Seksi yang diisi**: Neraca, Laba Rugi, Struktur Modal (KPMM/CAR). "
+        "Komitmen & kontinjensi dan rasio-rasio (formula) tidak disentuh, formulanya ikut diperpanjang.\n"
+        "- **Identifikasi akun**:\n"
+        "  1. *Pola angka* — angka pembanding di laporan (mis. Des tahun lalu) dicocokkan dengan "
+        "histori di template → akun & kolom (konsolidasian/bank only) ketahuan otomatis.\n"
+        "  2. *Alias* — kamus padanan nama akun (bisa belajar dari koreksimu).\n"
+        "  3. *Nama akun* — kemiripan nama + induk akun + urutan.\n"
+        "- Baris yang **biasanya kosong** di template tidak diisi otomatis (hindari dobel hitung)."
     )
-    st.stop()
-
-period_cols = get_period_columns(ws, header_row)
-if not period_cols:
-    st.error("Gagal mendeteksi kolom-kolom periode di sheet ini.")
-    st.stop()
-
-first_period_col = min(period_cols)
-last_period_col = max(period_cols)
-
-
-def period_fill_ratio(ws, col, header_row, sample=300):
-    """Seberapa banyak baris di bawah header yang sudah terisi di kolom ini."""
-    total, filled, count, r = 0, 0, 0, header_row + 1
-    while r <= ws.max_row and count < sample:
-        if ws.cell(r, col).value is not None:
-            filled += 1
-        total += 1
-        count += 1
-        r += 1
-    return filled / total if total else 0
-
-
-fill_ratios = {c: period_fill_ratio(ws, c, header_row) for c in period_cols}
-# kolom periode terakhir yang SUDAH ada isinya (bukan cuma judulnya doang)
-filled_period_cols = [c for c in period_cols if fill_ratios[c] > 0.05]
-last_filled_col = max(filled_period_cols) if filled_period_cols else last_period_col
-
-# Kasus umum di template ini: kolom periode terakhir sudah dibuat judulnya (mis. "Dec 25")
-# tapi datanya masih kosong -> itu berarti kolom TUJUAN yang mau diisi, bukan kolom
-# "periode sebelumnya" yang datanya jadi acuan pola/formula.
-is_placeholder_col = (last_period_col != last_filled_col) and (fill_ratios[last_period_col] < 0.05)
-style_source_col = last_filled_col  # kolom acuan pola format/formula ("periode sebelumnya")
-
-if is_placeholder_col:
-    target_col = last_period_col
-    st.info(
-        f"Kolom periode **'{ws.cell(header_row, last_period_col).value}'** "
-        f"({get_column_letter(last_period_col)}) sudah ada di template tapi datanya masih "
-        f"kosong -> sistem akan mengisi kolom itu langsung (bukan menambah kolom baru). "
-        f"Pola/format diambil dari kolom sebelumnya, **"
-        f"'{ws.cell(header_row, last_filled_col).value}'** ({get_column_letter(last_filled_col)})."
-    )
-else:
-    target_col = last_period_col + 1
-    st.success(
-        f"Terdeteksi: baris header periode = baris {header_row}, "
-        f"kolom periode terakhir yang sudah terisi = {get_column_letter(last_period_col)} "
-        f"('{ws.cell(header_row, last_period_col).value}'). Sistem akan menambah kolom baru "
-        f"setelahnya."
-    )
-
-# --- Deteksi format label periode dari header yang sudah ada (mis. 'Mar 23', 'Dec 25') ---
-month_order, seen_months = [], set()
-year_digit_len = 2
-for c in period_cols:
-    parsed = extract_month_year(ws.cell(header_row, c).value)
-    if parsed:
-        mon, yr = parsed
-        if mon not in seen_months:
-            seen_months.add(mon)
-            month_order.append(mon)
-        year_digit_len = len(yr)
-
-if is_placeholder_col:
-    # kolom tujuan sudah punya judul -> pakai itu sebagai default, tinggal dikonfirmasi
-    existing_label = str(ws.cell(header_row, target_col).value).strip()
-    st.markdown("**Konfirmasi periode yang mau diisi:**")
-    new_period_label = st.text_input(
-        "Judul kolom periode (sudah otomatis kebaca dari template, tinggal dikonfirmasi/ubah kalau perlu):",
-        value=existing_label,
-    )
-else:
-    last_parsed = extract_month_year(ws.cell(header_row, last_period_col).value)
-    last_year_num = int(last_parsed[1]) if last_parsed else datetime.now().year % 100
-    base_year_full = 2000 + last_year_num if (year_digit_len == 2 and last_year_num < 100) else last_year_num
-
-    st.markdown("**Pilih periode baru yang mau ditambahkan sebagai kolom di template ini:**")
-    pc1, pc2 = st.columns(2)
-    with pc1:
-        chosen_month = st.selectbox(
-            "Kuartal (bulan akhir kuartal, ikut format yang sudah ada di template)",
-            options=month_order if month_order else ["Mar", "Jun", "Sep", "Dec"],
-        )
-    with pc2:
-        year_options = [base_year_full + d for d in (-1, 0, 1, 2)]
-        chosen_year_full = st.selectbox(
-            "Tahun",
-            options=year_options,
-            index=1,  # default: satu periode setelah yang terakhir di template
-        )
-    year_str = str(chosen_year_full)[-2:] if year_digit_len == 2 else str(chosen_year_full)
-    new_period_label = f"{chosen_month} {year_str}"
-    st.caption(
-        f"Kolom baru akan diberi judul **'{new_period_label}'** "
-        f"(mengikuti format periode yang sudah dipakai di template ini)."
-    )
-
-# Kumpulkan baris-baris akun di template (dari bawah header sampai baris kosong panjang),
-# memakai kolom ACUAN (periode sebelumnya yang datanya sudah ada) untuk cek formula/nilai.
-template_rows = []
-empty_streak = 0
-r = header_row + 1
-while r <= ws.max_row and empty_streak < 15:
-    label = row_label(ws, r, first_period_col)
-    prev_val = ws.cell(r, style_source_col).value
-    if label is None and prev_val is None:
-        empty_streak += 1
-    else:
-        empty_streak = 0
-        if label is not None:
-            template_rows.append(
-                {
-                    "row": r,
-                    "label": label,
-                    "prev_value": prev_val,
-                    "is_formula": isinstance(prev_val, str) and str(prev_val).startswith("="),
-                }
-            )
-    r += 1
-
-if not template_rows:
-    st.error("Tidak ada baris akun terbaca di bawah header. Cek deteksi kolom label.")
-    st.stop()
-
+    st.divider()
+    st.caption(f"Template: `template.xlsx` — {len(models)} sheet bank terdeteksi.")
+    n_learned = sum(len(v) for v in st.session_state.learned.values())
+    st.caption(f"Pemetaan hasil belajar: {n_learned} akun (`mappings.json`).")
 
 # ---------------------------------------------------------------------------------
-# PARSE SOURCE (laporan keuangan baru) -> list of (label, [nilai1, nilai2, ...])
-# Ditangkap SEMUA angka per baris (bukan cuma yang pertama) karena laporan bank
-# sering punya beberapa kolom sekaligus per baris (mis. Individual 2025 | Individual
-# 2024 | Konsolidasian 2025 | Konsolidasian 2024). User yang pilih kolom ke berapa
-# yang mau dipakai (lihat "Pilih kolom nilai" di bawah).
+# STEP 1: upload
 # ---------------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def parse_source_excel(file_bytes):
-    swb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-    pairs = []
-    for sn in swb.sheetnames:
-        sws = swb[sn]
-        for row in sws.iter_rows():
-            label, values = None, []
-            for cell in row:
-                v = cell.value
-                if v is None:
-                    continue
-                if isinstance(v, str) and not looks_like_period(v):
-                    if label is None or len(v.strip()) > len(label):
-                        label = v.strip()
-                elif isinstance(v, (int, float)):
-                    values.append(float(v))
-            if label and values:
-                pairs.append((label, values))
-    return pairs
-
-
-def _clean_number(raw: str):
-    c = str(raw).replace(".", "").replace(",", "").replace("(", "-").replace(")", "").strip()
-    c = re.sub(r"[^\d\-]", "", c)
-    if c in ("", "-"):
-        return None
-    try:
-        return float(c)
-    except ValueError:
-        return None
-
-
-def _pairs_from_table_rows(table):
-    pairs = []
-    for row in table:
-        cells = [c for c in row if c is not None and str(c).strip() != ""]
-        if len(cells) < 2:
-            continue
-        label = str(cells[0]).strip()
-        if looks_like_period(label) or label == "":
-            continue
-        values = [v for v in (_clean_number(c) for c in cells[1:]) if v is not None]
-        if values:
-            pairs.append((label, values))
-    return pairs
-
-
-NUM_TOKEN = re.compile(r"\(?-?\d[\d.,]*\)?")
-
-
-def _pairs_from_text_lines(text):
-    """Fallback kalau ekstraksi tabel gagal/terlalu sedikit: baca per baris teks,
-    ambil bagian sebelum angka pertama sebagai label, SEMUA angka di baris itu
-    sebagai daftar nilai (posisi 1, 2, 3, dst dari kiri). Nomor urut di depan baris
-    (mis. '1. Kas ...') dibuang dulu supaya tidak ketuker jadi dianggap angka nilai."""
-    pairs = []
-    for raw_line in text.split("\n"):
-        line = strip_leading_enumerators(raw_line.strip())
-        if not line or looks_like_period(line):
-            continue
-        nums = list(NUM_TOKEN.finditer(line))
-        if not nums:
-            continue
-        label = line[: nums[0].start()].strip(" .:-")
-        if len(label) < 2 or not re.search(r"[A-Za-z]", label):
-            continue
-        values = [v for v in (_clean_number(n.group()) for n in nums) if v is not None]
-        if values:
-            pairs.append((label, values))
-    return pairs
-
-
-@st.cache_data(show_spinner=False)
-def parse_source_pdf(file_bytes):
-    pairs = []
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            # Strategi 1: deteksi tabel standar (ada garis pemisah)
-            for table in page.extract_tables():
-                pairs.extend(_pairs_from_table_rows(table))
-            # Strategi 2: deteksi tabel tanpa garis (murni berdasarkan posisi teks)
-            try:
-                for table in page.extract_tables(
-                    {"vertical_strategy": "text", "horizontal_strategy": "text"}
-                ):
-                    pairs.extend(_pairs_from_table_rows(table))
-            except Exception:
-                pass
-            # Strategi 3 (fallback): baca per baris teks biasa
-            text = page.extract_text() or ""
-            pairs.extend(_pairs_from_text_lines(text))
-
-    # Buang duplikat persis (label+nilai-nilai sama) yang muncul dari beberapa strategi
-    seen, unique_pairs = set(), []
-    for label, values in pairs:
-        key = (label.strip().lower(), tuple(values))
-        if key not in seen:
-            seen.add(key)
-            unique_pairs.append((label, values))
-    return unique_pairs
-
-
-src_bytes = source_file.getvalue()
-with st.spinner(f"Membaca '{source_file.name}'..."):
-    if source_file.name.lower().endswith(".pdf"):
-        if not HAS_PDF:
-            st.error("pdfplumber belum terinstall. Jalankan: pip install pdfplumber")
-            st.stop()
-        raw_source_rows = parse_source_pdf(src_bytes)
-    else:
-        raw_source_rows = parse_source_excel(src_bytes)
-
-if not raw_source_rows:
-    st.error("Tidak ada data (label + angka) yang berhasil diekstrak dari laporan baru.")
-    st.stop()
-
-st.success(f"✅ File '{source_file.name}' berhasil dibaca — {len(raw_source_rows)} baris akun terdeteksi.")
-
-max_value_cols = max(len(v) for _, v in raw_source_rows)
-st.markdown("**Pilih kolom nilai yang mau dipakai** (kalau satu baris di laporan punya beberapa angka sekaligus, mis. Individual/Konsolidasian x tahun ini/lalu):")
-value_col_idx = st.selectbox(
-    "Ambil angka ke berapa dari kiri, di tiap baris?",
-    options=list(range(1, max_value_cols + 1)),
-    index=0,
-    format_func=lambda i: f"Angka ke-{i}",
+uploads = st.file_uploader(
+    "① Drag & drop laporan keuangan publikasi (PDF / Excel) — boleh beberapa bank sekaligus",
+    type=["pdf", "xlsx", "xlsm"],
+    accept_multiple_files=True,
 )
+if not uploads:
+    st.info("Upload minimal satu laporan publikasi untuk mulai.")
+    st.stop()
 
-with st.expander("🔍 Lihat detail akun & semua angka yang berhasil dibaca dari file", expanded=False):
-    st.caption(
-        "Kolom yang di-highlight (dipilih di atas) itu yang akan dipakai sebagai nilai. "
-        "Kalau labelnya berantakan atau angkanya di kolom yang salah, berarti sumber masalah "
-        "ada di ekstraksi file, bukan di proses matching."
-    )
-    preview_debug = pd.DataFrame(
-        [
-            {"Akun (Laporan Baru)": lbl, **{f"Angka ke-{i+1}": (v[i] if i < len(v) else None) for i in range(max_value_cols)}}
-            for lbl, v in raw_source_rows[:200]
-        ]
-    )
-    st.dataframe(preview_debug, use_container_width=True, height=300)
-
-source_pairs = [(lbl, v[value_col_idx - 1]) for lbl, v in raw_source_rows if len(v) >= value_col_idx]
-
-
-# ---------------------------------------------------------------------------------
-# STEP 3: MATCHING (fuzzy) — hanya untuk baris yang BUKAN formula
-# ---------------------------------------------------------------------------------
-SCORE_THRESHOLD = 80  # di bawah ini, tidak auto-pilih -> user harus pilih manual
-
-source_labels = [p[0] for p in source_pairs]
-
-review_rows = []
-for tr in template_rows:
-    if tr["is_formula"]:
-        review_rows.append(
-            {
-                "Baris Template": tr["row"],
-                "Akun (Template)": tr["label"],
-                "Tipe": "FORMULA (auto-geser)",
-                "Akun Cocok (Laporan Baru)": "-",
-                "Nilai": "-",
-                "Skor": "-",
-            }
+parsed = {}
+for f in uploads:
+    with st.spinner(f"Membaca '{f.name}'..."):
+        try:
+            rows, text = parse_cached(f.name, f.getvalue())
+        except Exception as e:  # file rusak / terenkripsi / bukan PDF teks
+            st.error(f"Gagal membaca '{f.name}': {e}")
+            continue
+    relevant = [r for r in rows if r.section in ("BS", "IS", "CAP", "?")]
+    if not relevant:
+        st.error(
+            f"Tidak ada akun + angka yang terbaca dari '{f.name}'. Kalau PDF-nya hasil scan (gambar), "
+            "sistem tidak bisa membaca teksnya — pakai versi PDF teks / Excel dari website bank / OJK."
         )
         continue
-
-    scored = sorted(
-        ((similarity(tr["label"], sl), sl, sv) for sl, sv in source_pairs),
-        key=lambda x: x[0],
-        reverse=True,
-    )
-    best_score, best_label, best_value = scored[0] if scored else (0, "", None)
-
-    review_rows.append(
-        {
-            "Baris Template": tr["row"],
-            "Akun (Template)": tr["label"],
-            "Tipe": "Nilai",
-            "Akun Cocok (Laporan Baru)": best_label if best_score >= SCORE_THRESHOLD else "(pilih manual)",
-            "Nilai": best_value if best_score >= SCORE_THRESHOLD else None,
-            "Skor": round(best_score, 1),
-        }
-    )
-
-review_df = pd.DataFrame(review_rows)
+    parsed[file_key(f)] = (f, rows, text)
+if not parsed:
+    st.stop()
 
 # ---------------------------------------------------------------------------------
-# STEP 4: TABEL KONFIRMASI (WAJIB dicek user sebelum apply)
+# STEP 2: periode
 # ---------------------------------------------------------------------------------
-st.subheader("Konfirmasi hasil matching sebelum ditulis ke template")
-st.caption(
-    "Baris dengan skor rendah / '(pilih manual)' HARUS diisi/dikoreksi manual dulu "
-    "(edit langsung di kolom 'Akun Cocok' dan 'Nilai'). Baris FORMULA tidak butuh angka; "
-    "formula akan otomatis mengikuti pola kolom sebelumnya."
-)
+detected = [detect_report_period(text) for _, _, text in parsed.values()]
+detected = [d for d in detected if d]
+any_model = next(iter(models.values()))
+if detected:
+    default_period = max(set(detected), key=detected.count)
+else:
+    latest = max((m.latest_period() for m in models.values() if m.latest_period()), key=lambda p: (p[1], p[0]))
+    mon, yr = latest
+    default_period = (mon + 3, yr) if mon < 12 else (3, yr + 1)
 
-edited_df = st.data_editor(
-    review_df,
-    use_container_width=True,
-    num_rows="fixed",
-    disabled=["Baris Template", "Akun (Template)", "Tipe", "Skor"],
-    key="review_editor",
-)
-
-low_conf = edited_df[
-    (edited_df["Tipe"] == "Nilai")
-    & ((edited_df["Skor"] == "-") | (pd.to_numeric(edited_df["Skor"], errors="coerce") < SCORE_THRESHOLD))
-]
-if len(low_conf) > 0:
-    st.warning(
-        f"{len(low_conf)} baris masih perlu dicek/dilengkapi manual sebelum apply "
-        "(skor kemiripan di bawah ambang batas atau belum ada match)."
+st.subheader("② Periode laporan")
+c1, c2, c3 = st.columns([1, 1, 2])
+with c1:
+    month = st.selectbox("Kuartal", QUARTER_MONTHS, index=QUARTER_MONTHS.index(default_period[0])
+                         if default_period[0] in QUARTER_MONTHS else 3, format_func=lambda m: QUARTER_NAMES[m])
+with c2:
+    year = st.number_input("Tahun", min_value=2000, max_value=2100, value=int(default_period[1]), step=1)
+period_label = format_period_label(month, int(year), like=any_model.period_cols[any_model.last_period_col()])
+with c3:
+    st.markdown(
+        f"Judul kolom: **{period_label}**"
+        + (f"  \n<small>Terdeteksi dari isi laporan: {', '.join(f'{m:02d}/{y}' for m, y in sorted(set(detected)))}</small>"
+           if detected else "  \n<small>Periode tidak terbaca dari laporan — pilih manual.</small>"),
+        unsafe_allow_html=True,
     )
 
-st.divider()
-
-
 # ---------------------------------------------------------------------------------
-# STEP 5: APPLY -> tambah kolom baru di template
+# STEP 3: per file -> bank, matching, review
 # ---------------------------------------------------------------------------------
-def copy_cell_style(src_cell, dst_cell):
-    dst_cell.font = copy.copy(src_cell.font)
-    dst_cell.border = copy.copy(src_cell.border)
-    dst_cell.fill = copy.copy(src_cell.fill)
-    dst_cell.number_format = copy.copy(src_cell.number_format)
-    dst_cell.alignment = copy.copy(src_cell.alignment)
-    dst_cell.protection = copy.copy(src_cell.protection)
+st.subheader("③ Review hasil identifikasi akun")
+jobs = {}
+sheet_names = list(models)
+tabs = st.tabs([f.name for f, _, _ in parsed.values()])
 
 
-def shift_formula(formula: str, src_col: int, dst_col: int, row: int) -> str:
-    src_coord = f"{get_column_letter(src_col)}{row}"
-    dst_coord = f"{get_column_letter(dst_col)}{row}"
-    return Translator(formula, origin=src_coord).translate_formula(dst_coord)
+def build_df(matcher, results, rows_by_idx, option_of):
+    recs = []
+    for r in results:
+        src_opt = option_of.get(r.source_idx, SOURCE_NONE) if r.source_idx is not None else SOURCE_NONE
+        recs.append({
+            "Baris": r.row,
+            "Seksi": r.section,
+            "Akun (Template)": ("   ↳ " if r.parent else "") + r.label,
+            "Tipe": r.kind,
+            "Akun di Laporan": src_opt,
+            "Nilai": r.value,
+            "Periode lalu": r.prev_value,
+            "Skor": r.score if r.source_idx is not None else None,
+            "Metode": r.method,
+            "Catatan": r.note,
+        })
+    df = pd.DataFrame(recs).set_index("Baris", drop=False)
+    return df
 
 
-apply_clicked = st.button(f"🚀 Generate Laporan — Tambah Kolom '{new_period_label}'", type="primary")
+def on_editor_change(state_key, editor_key, shown_index, matcher_key):
+    """Terapkan editan ke tabel utama. Kalau 'Akun di Laporan' diganti, nilainya ikut
+    diambil otomatis dari akun laporan yang dipilih + dicatat sebagai pemetaan baru."""
+    df = st.session_state[state_key]
+    ctx = st.session_state[matcher_key]
+    edits = st.session_state.get(editor_key, {}).get("edited_rows", {})
+    for pos, changes in edits.items():
+        row_id = shown_index[int(pos)]
+        for col, val in changes.items():
+            if col == "Akun di Laporan":
+                df.at[row_id, col] = val
+                sr = ctx["src_by_option"].get(val)
+                tr = ctx["rows_by_num"][row_id]
+                if sr is None:
+                    df.at[row_id, "Nilai"] = None
+                else:
+                    v, notes = ctx["matcher"].value_for(tr, sr)
+                    df.at[row_id, "Nilai"] = v
+                    add_learned(st.session_state.learned, tr.section, tr.label, tr.parent, sr.label)
+                df.at[row_id, "Metode"] = "Manual"
+                df.at[row_id, "Skor"] = None
+            elif col == "Nilai":
+                df.at[row_id, "Nilai"] = val
+                df.at[row_id, "Metode"] = "Manual"
+    st.session_state[state_key] = df
+    st.session_state.pop(editor_key, None)
 
-if apply_clicked:
-    with st.spinner("Menulis kolom baru ke template... (tidak lama)"):
-        # Buat salinan workbook yang FRESH khusus untuk ditulisi — bukan objek
-        # yang di-cache (load_template_readonly), supaya tidak ada perubahan yang
-        # "nempel" ke cache bersama dan bocor ke user/sesi lain.
-        fresh_bytes = read_template_bytes(TEMPLATE_PATH, TEMPLATE_MTIME)
-        wb_out = openpyxl.load_workbook(io.BytesIO(fresh_bytes), data_only=False)
-        ws_out = wb_out[sheet_name]
 
-        new_col = target_col
+for tab, (fk, (f, rows, text)) in zip(tabs, parsed.items()):
+    with tab:
+        ranking = detect_bank(text, rows, models, aliases)
+        best_sheet = ranking[0][0]
+        reason = {n: r for n, _, r in ranking}
+        cc1, cc2 = st.columns([2, 3])
+        with cc1:
+            sheet = st.selectbox(
+                "Bank / sheet tujuan",
+                sheet_names,
+                index=sheet_names.index(best_sheet),
+                format_func=lambda n: sheet_display(models[n]),
+                key=f"sheet_{fk}",
+            )
+        with cc2:
+            st.caption(f"Tebakan otomatis: **{best_sheet}** — {reason[best_sheet]}")
+        model = models[sheet]
+        target_col, exists = model.target_col_for(month, int(year))
+        ref_col = model.reference_col(target_col)
+        col_letter = get_column_letter(target_col)
+        if exists and model.fill_ratio(target_col) > 0.05:
+            st.warning(f"Kolom **{period_label}** (kolom {col_letter}) di sheet ini SUDAH BERISI data → angka lama "
+                       "akan ditimpa dengan angka dari laporan ini. Pastikan periodenya benar.")
+        elif exists:
+            st.info(f"Kolom **{period_label}** sudah ada di sheet ini (kolom {col_letter}) → akan diisi. "
+                    f"Pola/format mengikuti kolom {get_column_letter(ref_col)} ('{model.period_cols.get(ref_col)}').")
+        else:
+            st.success(f"Kolom baru **{period_label}** akan ditambahkan di kolom {col_letter} "
+                       f"(setelah '{model.period_cols[model.last_period_col()]}'); formula & format disalin "
+                       f"dari kolom {get_column_letter(ref_col)}.")
 
-        if not is_placeholder_col:
-            ws_out.column_dimensions[get_column_letter(new_col)].width = ws_out.column_dimensions[
-                get_column_letter(style_source_col)
-            ].width
-
-        header_dst = ws_out.cell(header_row, new_col)
-        header_dst.value = new_period_label.strip()
-        if not is_placeholder_col:
-            copy_cell_style(ws_out.cell(header_row, style_source_col), header_dst)
-
-        edited_lookup = {row["Baris Template"]: row for row in edited_df.to_dict("records")}
-
-        applied, skipped = 0, 0
-        for tr in template_rows:
-            row_num = tr["row"]
-            src_cell = ws_out.cell(row_num, style_source_col)
-            dst_cell = ws_out.cell(row_num, new_col)
-            if not is_placeholder_col:
-                copy_cell_style(src_cell, dst_cell)
-
-            info = edited_lookup.get(row_num)
-
-            if tr["is_formula"]:
-                dst_cell.value = shift_formula(str(tr["prev_value"]), style_source_col, new_col, row_num)
-                applied += 1
+        matcher = Matcher(model, rows, target_col, aliases)
+        layout = matcher.detect_layout()
+        with st.expander("🔢 Kolom angka yang dipakai dari laporan", expanded=layout.comp_idx is None):
+            if layout.comp_idx is not None:
+                comp_txt = ", ".join(f"{SECTION_NAMES.get(s, s)} → '{p}'" for s, p in layout.comp_period_by_section.items())
+                st.markdown(
+                    f"Tiap baris laporan punya **{layout.n_values} angka**. Angka ke-**{layout.comp_idx + 1}** "
+                    f"persis sama dengan histori template ({comp_txt}) → itu kolom **pembanding**. "
+                    f"Jadi angka ke-**{layout.cur_idx + 1}** dipakai sebagai **periode berjalan**."
+                    + (f" Skala dikonversi ×{layout.scale:g}." if layout.scale != 1 else "")
+                )
             else:
-                val = info["Nilai"] if info else None
-                if val in (None, "", "-"):
-                    skipped += 1
-                    continue
-                try:
-                    dst_cell.value = float(val)
-                except (TypeError, ValueError):
-                    dst_cell.value = val
-                applied += 1
+                st.warning(
+                    "Pola angka pembanding tidak ditemukan di histori template (bank baru / format beda). "
+                    f"Sistem menebak angka ke-{layout.cur_idx + 1} sebagai periode berjalan"
+                    + (" (kolom Konsolidasian periode ini di format OJK)." if layout.n_values >= 4 else ".")
+                    + " Cek & ubah di bawah kalau salah."
+                )
+            cur_idx = st.selectbox(
+                "Angka ke berapa (dari kiri) = periode berjalan?",
+                list(range(max(layout.n_values, 1))),
+                index=min(layout.cur_idx, max(layout.n_values, 1) - 1),
+                format_func=lambda i: f"Angka ke-{i + 1}",
+                key=f"cur_{fk}",
+            )
+            preview = [
+                {"Seksi": r.section, "Akun (laporan)": r.label, **{f"#{i + 1}": fmt_num(v) for i, v in enumerate(r.values[:6])}}
+                for r in matcher.source[:400]
+            ]
+            st.dataframe(pd.DataFrame(preview), width="stretch", height=220)
 
-    st.success(f"Selesai. {applied} baris terisi, {skipped} baris dilewati (belum ada nilai).")
+        results = matcher.run(cur_idx_override=cur_idx)
+        rows_by_idx = {r.idx: r for r in matcher.source}
+        option_of = {r.idx: f"#{r.idx} · {r.label[:70]} [{fmt_num(matcher.current_value(r))}]" for r in matcher.source}
+        src_by_option = {opt: rows_by_idx[i] for i, opt in option_of.items()}
 
-    st.subheader(f"📄 Preview hasil kompilasi — kolom '{new_period_label}'")
-    preview_rows = []
-    for tr in template_rows:
-        val = ws_out.cell(tr["row"], new_col).value
-        preview_rows.append(
-            {
-                "Baris": tr["row"],
-                "Akun": tr["label"],
-                "Tipe": "Formula" if tr["is_formula"] else "Nilai",
-                f"{new_period_label}": val,
-            }
+        sig = (fk, sheet, target_col, cur_idx, int(year), month)
+        state_key, matcher_key = f"df_{fk}", f"matcher_{fk}"
+        if st.session_state.get(f"sig_{fk}") != sig:
+            st.session_state[state_key] = build_df(matcher, results, rows_by_idx, option_of)
+            st.session_state[f"sig_{fk}"] = sig
+            st.session_state.pop(f"editor_{fk}", None)
+        st.session_state[matcher_key] = {
+            "matcher": matcher,
+            "src_by_option": src_by_option,
+            "rows_by_num": {r.row: r for r in model.rows},
+        }
+        df = st.session_state[state_key]
+
+        n_val = int((df["Tipe"] == "Nilai").sum())
+        n_filled = int(((df["Tipe"] != "Formula") & df["Nilai"].notna()).sum())
+        n_check = int(((df["Tipe"] == "Nilai") & (df["Nilai"].isna() | df["Catatan"].str.contains("cek", na=False))).sum())
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Akun yang biasa diisi", n_val)
+        m2.metric("Terisi otomatis", n_filled)
+        m3.metric("Perlu dicek", n_check)
+        m4.metric("Cocok via pola angka", int((df["Metode"] == "Pola angka").sum()))
+
+        fc1, fc2 = st.columns([3, 2])
+        with fc1:
+            secs = st.multiselect("Seksi", ["BS", "IS", "CAP"], default=["BS", "IS", "CAP"],
+                                  format_func=lambda s: SECTION_NAMES[s], key=f"secs_{fk}")
+        with fc2:
+            view = st.radio("Tampilkan", ["Akun yang diisi", "Perlu dicek saja", "Semua baris"],
+                            horizontal=True, key=f"view_{fk}")
+        shown = df[df["Seksi"].isin(secs)]
+        if view == "Akun yang diisi":
+            shown = shown[(shown["Tipe"] == "Nilai") | shown["Nilai"].notna()]
+        elif view == "Perlu dicek saja":
+            shown = shown[(shown["Tipe"] == "Nilai") & (shown["Nilai"].isna() | shown["Catatan"].str.contains("cek", na=False))]
+
+        st.data_editor(
+            shown,
+            key=f"editor_{fk}",
+            on_change=on_editor_change,
+            args=(state_key, f"editor_{fk}", list(shown.index), matcher_key),
+            width="stretch",
+            height=460,
+            hide_index=True,
+            disabled=["Baris", "Seksi", "Akun (Template)", "Tipe", "Periode lalu", "Skor", "Metode", "Catatan"],
+            column_config={
+                "Baris": st.column_config.NumberColumn(width="small"),
+                "Akun di Laporan": st.column_config.SelectboxColumn(
+                    options=[SOURCE_NONE] + list(option_of.values()), width="large"),
+                "Nilai": st.column_config.NumberColumn(format="%.0f"),
+                "Periode lalu": st.column_config.NumberColumn(format="%.0f"),
+                "Skor": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f"),
+            },
         )
-    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, height=350)
+        st.caption("Ganti **Akun di Laporan** → nilai ikut terisi otomatis & pemetaannya diingat. "
+                   "Atau ketik langsung di kolom **Nilai**. Baris 'Formula' dihitung otomatis oleh Excel.")
 
-    out = io.BytesIO()
-    wb_out.save(out)
-    out.seek(0)
+        values = {int(r): (None if pd.isna(v) else float(v)) for r, v in df["Nilai"].items()
+                  if df.at[r, "Tipe"] != "Formula"}
+        values = {r: v for r, v in values.items() if v is not None}
+        checks = reconcile(matcher, values)
+        if checks:
+            chk = pd.DataFrame(checks)
+            bad = int((chk["Status"] == "BEDA").sum())
+            with st.expander(f"✅ Cek total vs laporan — {len(chk) - bad} cocok, {bad} beda", expanded=bad > 0):
+                show = chk.copy()
+                for c in ("Hasil hitung", "Di laporan", "Selisih"):
+                    show[c] = show[c].map(fmt_num)
+                st.dataframe(show, width="stretch", hide_index=True)
+                st.caption("Total dihitung dari formula template memakai angka yang akan diisi, lalu dibandingkan "
+                           "dengan total di laporan. 'BEDA' = ada akun yang salah pasang / belum terisi.")
 
-    fname = f"{sheet_name}_updated_{datetime.now().strftime('%Y%m%d')}.xlsx"
-    st.download_button(
-        "⬇️ Download template hasil update (.xlsx)",
-        data=out,
-        file_name=fname,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+        notes = {}
+        for r, row in df.iterrows():
+            if r in values and (row["Metode"] == "Manual" or (row["Skor"] is not None and not pd.isna(row["Skor"])
+                                                              and row["Skor"] < 90 and row["Metode"] == "Nama akun")):
+                notes[int(r)] = f"Auto-update: {row['Metode']} — {row['Akun di Laporan']}"
+        jobs[fk] = dict(file=f.name, sheet=sheet, model=model, target_col=target_col, values=values, notes=notes)
+
+# ---------------------------------------------------------------------------------
+# STEP 4: generate
+# ---------------------------------------------------------------------------------
+st.subheader("④ Generate template")
+dupes = pd.Series([j["sheet"] for j in jobs.values()]).value_counts()
+dupes = dupes[dupes > 1]
+if len(dupes):
+    st.warning(f"Beberapa file diarahkan ke sheet yang sama: {', '.join(dupes.index)} — file terakhir yang menang.")
+
+annotate = st.checkbox("Beri comment di sel yang diisi manual / skornya rendah (biar gampang dicek di Excel)", value=True)
+if st.button(f"🚀 Update template — kolom '{period_label}' untuk {len(jobs)} bank", type="primary"):
+    with st.spinner("Memuat template lengkap & menulis kolom baru... (±30–60 detik untuk file besar)"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wb = openpyxl.load_workbook(io.BytesIO(get_template_bytes(TEMPLATE_PATH, TEMPLATE_MTIME)))
+        summary = []
+        for job in jobs.values():
+            n = apply_to_workbook(wb, job["model"], job["target_col"], period_label, month, int(year),
+                                  job["values"], job["notes"] if annotate else None)
+            summary.append({"File": job["file"], "Sheet": job["sheet"],
+                            "Kolom": get_column_letter(job["target_col"]), "Sel angka terisi": n})
+        out = io.BytesIO()
+        wb.save(out)
+    st.session_state["output"] = (out.getvalue(), f"template_{period_label.replace(' ', '')}_{datetime.now():%Y%m%d}.xlsx",
+                                  summary)
+
+if "output" in st.session_state:
+    data, fname, summary = st.session_state["output"]
+    st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
+    st.download_button("⬇️ Download template hasil update (.xlsx)", data=data, file_name=fname,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.caption("Catatan: openpyxl tidak menyimpan ulang chart/gambar yang ada di workbook. "
+               "Kalau template punya chart, salin sheet hasil update ke template aslimu.")
+
+if st.session_state.learned:
+    with st.expander("🧠 Pemetaan akun yang dipelajari dari koreksimu"):
+        st.json(st.session_state.learned, expanded=False)
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("💾 Simpan ke mappings.json (server)"):
+                save_learned(st.session_state.learned)
+                st.success(f"Tersimpan di {MAPPINGS_PATH}. Di Streamlit Cloud file ini hilang saat app restart — "
+                           "download lalu commit ke repo supaya permanen.")
+        with b2:
+            import json
+
+            st.download_button("⬇️ Download mappings.json", data=json.dumps(st.session_state.learned, indent=2,
+                                                                           ensure_ascii=False),
+                               file_name="mappings.json", mime="application/json")
