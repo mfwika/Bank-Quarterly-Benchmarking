@@ -18,13 +18,16 @@ from .periods import looks_like_period
 from .text import enumerator_kind, is_number_token, parse_number, strip_leading_enumerators
 
 SECTION_PATTERNS = [
-    ("CAP", re.compile(r"PENYEDIAAN MODAL MINIMUM|KPMM|CAPITAL ADEQUACY|PERHITUNGAN MODAL|PERMODALAN|KOMPONEN MODAL")),
-    ("COMMIT", re.compile(r"KOMITMEN|KONTI[NJ]+ENSI|KONTIGENSI")),
-    ("IS", re.compile(r"LABA\s*\(?\s*RUGI|LABA\s*/\s*RUGI|PENGHASILAN KOMPREHENSIF|INCOME STATEMENT|PROFIT OR LOSS")),
+    ("CAP", re.compile(r"PENYEDIAAN MODAL MINIMUM|KPMM|CAPITAL ADEQUACY|PERHITUNGAN MODAL|PERMODALAN|KOMPONEN MODAL"
+                       r"|MINIMUM CAPITAL|CAPITAL COMPONENTS?|CAPITAL REQUIREMENT")),
+    ("COMMIT", re.compile(r"KOMITMEN|KONTI[NJ]+ENSI|KONTIGENSI|COMMITMENTS?|CONTINGENC")),
+    ("IS", re.compile(r"LABA\s*\(?\s*RUGI|LABA\s*/\s*RUGI|PENGHASILAN KOMPREHENSIF|INCOME STATEMENT"
+                      r"|PROFIT\s*(OR|AND|&)?\s*LOSS|COMPREHENSIVE INCOME")),
     ("BS", re.compile(r"POSISI KEUANGAN|NERACA|BALANCE SHEET|FINANCIAL POSITION")),
     ("OTHER", re.compile(
         r"KUALITAS ASET|RASIO KEUANGAN|TRANSAKSI SPOT|CADANGAN PENYISIHAN|LIKUIDITAS|PENGURUS|PEMEGANG SAHAM"
         r"|ARUS KAS|PERUBAHAN EKUITAS|LEVERAGE|LIQUIDITY COVERAGE|NET STABLE|EKSPOSUR|MANAJEMEN RISIKO"
+        r"|ASSET QUALITY|FINANCIAL RATIOS?|SPOT AND DERIVATIVE TRANSACTIONS|ALLOWANCE FOR|CASH FLOWS?|CHANGES IN EQUITY"
     )),
 ]
 
@@ -37,6 +40,8 @@ class SourceRow:
     section: str = "?"
     parent: str | None = None
     page: int | None = None
+    cols: list | None = None  # per posisi angka: ((bulan, tahun) | None, 'IND'/'KONS' | None)
+    ocr: bool = False  # hasil OCR (angka perlu dicek lebih teliti)
 
     def value_at(self, i):
         return self.values[i] if 0 <= i < len(self.values) else None
@@ -47,13 +52,85 @@ def _heading_section(text: str):
     letters = [c for c in text if c.isalpha()]
     if len(letters) < 6:
         return None
-    if sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
+    titled = re.match(r"\s*(laporan|neraca|perhitungan|statement|report)\b", text, re.I) and len(text.split()) <= 14
+    if not titled and sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
         return None
     u = text.upper()
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
             return key
     return None
+
+
+_HDR_DATE = re.compile(
+    r"\b(\d{1,2})\s*(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Agt|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\.?\s*(\d{4})\b", re.I)
+_ENTITY_WORDS = {
+    "individual": "IND", "individu": "IND", "bank": "IND", "bank only": "IND",
+    "konsolidasian": "KONS", "konsolidasi": "KONS", "consolidated": "KONS",
+}
+_ENTITY_RE = re.compile(r"individual|individu|konsolidasian|konsolidasi|consolidated|\bbank\b", re.I)
+
+
+def parse_date_header(line: str):
+    """'31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024' -> [(12,2025),(12,2024),...]
+    (hanya kalau baris itu memang baris header, bukan judul 'Pada Tanggal ...')."""
+    from .periods import MONTHS
+
+    found = _HDR_DATE.findall(line)
+    if len(found) < 2:
+        return None
+    rest = _HDR_DATE.sub(" ", line)
+    words = re.findall(r"[A-Za-z]{3,}", rest)
+    if len(words) > 6:
+        return None
+    return [(MONTHS.get(m.lower()) or MONTHS.get(m.lower()[:3]), int(y)) for _, m, y in found]
+
+
+def parse_entity_header(line: str):
+    """'INDIVIDUAL KONSOLIDASIAN' -> ['IND','KONS']"""
+    words = re.findall(r"[A-Za-z]+", line)
+    hits = _ENTITY_RE.findall(line)
+    if not hits or len(hits) < 0.6 * max(1, len([w for w in words if w.lower() not in ("dan", "and", "only")])):
+        return None
+    return [_ENTITY_WORDS.get(h.lower(), "IND") for h in hits]
+
+
+def _combine_header(dates, ents, n_values=None):
+    if not dates and not ents:
+        return None
+    # header yg mencakup 2 tabel berdampingan ('Individual Konsolidasian' x4,
+    # '31 Des 2025 31 Des 2024' x2) -> ambil pola untuk tabel kiri saja
+    if ents and n_values and len(ents) > n_values and len(ents) % n_values == 0 \
+            and ents == ents[:n_values] * (len(ents) // n_values):
+        f = len(ents) // n_values
+        ents = ents[:n_values]
+        if dates and len(dates) % f == 0 and len(dates) > 1 and dates == dates[:len(dates) // f] * f:
+            dates = dates[:len(dates) // f]
+    m, n = len(dates or []), len(ents or [])
+    width = max(m, n)
+    if m and width % m:
+        return None
+    if n and width % n:
+        return None
+    per = [d for d in dates for _ in range(width // m)] if m else [None] * width
+    ent = [e for e in ents for _ in range(width // n)] if n else [None] * width
+    return list(zip(per, ent))
+
+
+_CONT_WORDS = {"dan", "atau", "dari", "dengan", "yang", "atas", "kepada", "untuk", "pada", "selain", "dalam",
+               "di", "ke", "oleh", "serta", "sebagai", "melalui", "terhadap", "tahun", "periode", "the", "of", "and"}
+
+
+def _is_continuation(prev_label: str, label: str) -> bool:
+    """Apakah `label` lanjutan dari baris sebelumnya yang terpotong?
+    'nilai wajar aset keuangan' (huruf kecil), '(dalam satuan Rupiah)' (kurung),
+    atau baris sebelumnya berakhir dengan kata sambung ('... Operasional selain')."""
+    if not label:
+        return False
+    if label[:1].islower() or label[:1] == "(":
+        return True
+    last = prev_label.strip().split()[-1].lower() if prev_label.strip() else ""
+    return last in _CONT_WORDS
 
 
 class _RowBuilder:
@@ -65,8 +142,23 @@ class _RowBuilder:
         self.section = "?"
         self.stack = []  # (level, label)
         self.pending = None  # label tanpa angka (induk / label yang terpotong)
+        self.pending_closed = False
         self.last_letter = None
         self.page = None
+        self.dates = None
+        self.ents = None
+        self.ocr_used = False
+
+    def header_line(self, line) -> bool:
+        d = parse_date_header(line)
+        if d:
+            self.dates = d
+            return True
+        e = parse_entity_header(line)
+        if e:
+            self.ents = e
+            return True
+        return False
 
     def set_page(self, page):
         self.page = page
@@ -96,8 +188,10 @@ class _RowBuilder:
         self.stack = []
         self.pending = None
         self.last_letter = None
+        self.dates = None
+        self.ents = None
 
-    def text_only(self, text, token=None):
+    def text_only(self, text, token=None, ends_colon=False):
         """Baris tanpa angka: judul seksi, induk akun, atau potongan label."""
         sec = _heading_section(text)
         if sec:
@@ -106,17 +200,19 @@ class _RowBuilder:
         label = strip_leading_enumerators(text)
         if not re.search(r"[A-Za-z]{2,}", label):
             return
-        if self.pending and not token and label[:1].islower():
+        if self.pending and not token and not self.pending_closed and _is_continuation(self.pending[1], label):
             self.pending = (self.pending[0], self.pending[1] + " " + label)
-            return
-        self.pending = (token, label)
+        else:
+            self.pending = (token, label)
+        # '... yang dapat diatribusikan kepada :' -> induk, baris berikut BUKAN lanjutan labelnya
+        self.pending_closed = ends_colon
 
     def add(self, label, values, token=None):
         label = strip_leading_enumerators(label).strip(" .:")
         # label terpotong: 'Keuntungan (kerugian) dari ...' + baris berikut 'nilai wajar ... 1.234'
         if self.pending:
             p_token, p_label = self.pending
-            if not token and label[:1].islower():
+            if not token and not self.pending_closed and _is_continuation(p_label, label):
                 label = f"{p_label} {label}"
                 token = p_token
             else:
@@ -125,7 +221,8 @@ class _RowBuilder:
         if not re.search(r"[A-Za-z]{2,}", label):
             return
         parent = self._push(self._level(token), label)
-        self.rows.append(SourceRow(len(self.rows), label, list(values), self.section, parent, self.page))
+        self.rows.append(SourceRow(len(self.rows), label, list(values), self.section, parent, self.page,
+                                   _combine_header(self.dates, self.ents, len(values))))
 
 
 # ---------------------------------------------------------------------------------
@@ -162,15 +259,44 @@ _DATE_WORDS = re.compile(
     r"\b\d{1,2}\s+(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s*(\d{4})?\b", re.I)
 
 
+def split_segments(line: str):
+    """Dua tabel berdampingan dalam satu baris teks:
+    'ATMR RISIKO KREDIT 835.899.197 868.520.469 Rasio CET 1 (%) 28,63% 29,24%'
+    -> ['ATMR RISIKO KREDIT 835.899.197 868.520.469', 'Rasio CET 1 (%) 28,63% 29,24%']"""
+    toks = line.split()
+    for i in range(2, len(toks) - 1):
+        if not is_number_token(toks[i - 1]) or is_number_token(toks[i]):
+            continue
+        run = 0
+        j = i - 1
+        while j >= 0 and is_number_token(toks[j]):
+            run, j = run + 1, j - 1
+        if run < 2 or j < 0:
+            continue
+        rest = toks[i:]
+        if not re.match(r"[A-Za-z(]", rest[0]) or not any(is_number_token(t) and re.search(r"\d", t) for t in rest):
+            continue
+        return [" ".join(toks[:i])] + split_segments(" ".join(rest))
+    return [line]
+
+
 def _feed_text(builder: _RowBuilder, text: str):
+    lines = []
     for raw in text.split("\n"):
-        line = raw.strip()
-        if not line:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if parse_date_header(raw) or parse_entity_header(raw):
+            lines.append(raw)
+        else:
+            lines.extend(split_segments(raw))
+    for line in lines:
+        if builder.header_line(line):
             continue
         token, label, values = split_label_values(line)
         if not values:
             if label:
-                builder.text_only(label, token)
+                builder.text_only(label, token, ends_colon=line.rstrip().endswith(":"))
             continue
         if len(label) < 2 or looks_like_period(label) or _DATE_WORDS.search(label) \
                 or re.fullmatch(r"[\d\s]*(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\w*\.?", label, re.I):
@@ -191,25 +317,41 @@ def _count_numeric_lines(text: str) -> int:
     return n
 
 
-def _page_blocks(page):
-    """Laporan publikasi di koran/web sering 2 kolom (Neraca di kiri, Laba Rugi
-    di kanan). Kalau ada 'selokan' vertikal yang jelas, halaman dipecah jadi 2
-    supaya baris kiri & kanan tidak tercampur."""
-    full_text = page.extract_text() or ""
+def _drop_ghost_spaces(page):
+    """Beberapa PDF (mis. BCA) menaruh karakter spasi yang MENUMPUK di posisi digit
+    pertama, sehingga '25.275.044' terbaca '2 5.275.044'. Spasi yang posisinya sama
+    dengan karakter lain dibuang dulu."""
     try:
-        words = page.extract_words()
+        solid = {(round(c["top"]), round(c["x0"])) for c in page.chars if c["text"].strip()}
     except Exception:
-        return [full_text]
+        return page
+    if not solid:
+        return page
+
+    def keep(obj):
+        if obj.get("object_type") != "char" or obj.get("text") != " ":
+            return True
+        return (round(obj["top"]), round(obj["x0"])) not in solid
+
+    return page.filter(keep)
+
+
+def _find_gutter(page, x0, x1):
+    """Cari 'selokan' vertikal (area kosong memanjang) di antara x0..x1."""
+    try:
+        words = [w for w in page.extract_words() if w["x0"] >= x0 - 1 and w["x1"] <= x1 + 1]
+    except Exception:
+        return None
     if len(words) < 40:
-        return [full_text]
-    width = int(page.width) + 2
+        return None
+    width = int(x1 - x0) + 2
     cover = [0] * width
     for w in words:
-        for x in range(max(0, int(w["x0"])), min(width, int(w["x1"]) + 1)):
+        for x in range(max(0, int(w["x0"] - x0)), min(width, int(w["x1"] - x0) + 1)):
             cover[x] += 1
     n_lines = max(1, len({round(w["top"]) for w in words}))
     limit = max(2, int(0.03 * n_lines))
-    lo, hi = int(page.width * 0.3), int(page.width * 0.7)
+    lo, hi = int(width * 0.2), int(width * 0.8)
     best, run_start = None, None
     for x in range(lo, hi + 1):
         if cover[x] <= limit:
@@ -219,28 +361,113 @@ def _page_blocks(page):
         else:
             run_start = None
     if not best or best[1] - best[0] < 6:
-        return [full_text]
-    split_x = (best[0] + best[1]) / 2
+        return None
+    return x0 + (best[0] + best[1]) / 2
+
+
+def _split_columns(page, x0, x1, depth=0):
+    """Pecah halaman jadi beberapa kolom (rekursif) selama tiap potongan masih
+    berisi tabel (>=5 baris label+angka). Laporan di koran/web sering 2-4 kolom."""
+    crop = page.crop((x0, 0, x1, page.height))
+    text = crop.extract_text() or ""
+    if depth >= 3:
+        return [text]
+    split_x = _find_gutter(page, x0, x1)
+    if split_x is None:
+        return [text]
     try:
-        left = page.crop((0, 0, split_x, page.height)).extract_text() or ""
-        right = page.crop((split_x, 0, page.width, page.height)).extract_text() or ""
+        left = (page.crop((x0, 0, split_x, page.height)).extract_text() or "")
+        right = (page.crop((split_x, 0, x1, page.height)).extract_text() or "")
     except Exception:
-        return [full_text]
+        return [text]
     if _count_numeric_lines(left) >= 5 and _count_numeric_lines(right) >= 5:
-        return [left, right]
-    return [full_text]
+        return _split_columns(page, x0, split_x, depth + 1) + _split_columns(page, split_x, x1, depth + 1)
+    return [text]
 
 
-def parse_pdf(file_bytes: bytes):
+def _page_blocks(page):
+    """Laporan publikasi di koran/web sering multi-kolom (Neraca | Laba Rugi | ...).
+    Kalau ada 'selokan' vertikal yang jelas, halaman dipecah per kolom supaya baris
+    dari kolom yang berbeda tidak tercampur."""
+    try:
+        return _split_columns(page, 0, page.width)
+    except Exception:
+        return [page.extract_text() or ""]
+
+
+# ---------------------------------------------------------------------------------
+# OCR (untuk PDF yang tabelnya berupa GAMBAR, mis. hasil scan / export gambar)
+# ---------------------------------------------------------------------------------
+def ocr_available() -> bool:
+    try:
+        import pytesseract
+
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def clean_ocr_text(text: str) -> str:
+    """Rapikan salah baca OCR yang umum di tabel angka."""
+    out = []
+    for line in text.split("\n"):
+        line = line.replace("|", " ").replace("¢", "").replace("—", "-").replace("–", "-")
+        line = re.sub(r"[\]\}\[\{]+", " ", line)  # '44,027,008]' / '[Personnel' -> noise OCR
+        line = re.sub(r"(\d[.,]) (\d{3})(?!\d)", r"\1\2", line)  # '1.379, 647' -> '1.379,647'
+        # '27,981 308' -> '27,981,308' (pemisah ribuan terbaca spasi)
+        line = re.sub(r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+) (\d{3})(?![\d.,])", r"\1,\2", line)
+        # '47 778,404' -> '47,778,404'
+        line = re.sub(r"(?<![\w.,])(\d{1,3}) (\d{3}(?:[.,]\d{3})+)(?![\d.,])", r"\1,\2", line)
+        # kurung nyasar: '2,973,145)' tanpa '(' -> '2,973,145' ; '(Securities' -> 'Securities'
+        line = re.sub(r"(?<![(\d.,])(\d[\d.,]*\d)\)", r"\1", line)
+        line = re.sub(r"\((?=[A-Za-z]{3,}\b)(?![^()]*\))", "", line)
+        out.append(re.sub(r"\s{2,}", " ", line).strip())
+    return "\n".join(out)
+
+
+def _ocr_page_blocks(page, lang="ind+eng"):
+    """OCR tiap gambar tabel di halaman (urut kolom kiri->kanan, atas->bawah).
+    Kalau tidak ada gambar besar, seluruh halaman di-OCR."""
+    import pytesseract
+
+    area = page.width * page.height
+    imgs = [im for im in page.images
+            if (im["x1"] - im["x0"]) * (im["bottom"] - im["top"]) > 0.02 * area]
+    regions = [(im["x0"], im["top"], im["x1"], im["bottom"]) for im in imgs] or [(0, 0, page.width, page.height)]
+    regions.sort(key=lambda b: (round(b[0] / 50), b[1]))
+    texts = []
+    for x0, top, x1, bottom in regions:
+        try:
+            crop = page.crop((max(0, x0), max(0, top), min(page.width, x1), min(page.height, bottom)))
+            img = crop.to_image(resolution=350).original
+            try:
+                txt = pytesseract.image_to_string(img, lang=lang, config="--psm 6")
+            except pytesseract.TesseractError:
+                txt = pytesseract.image_to_string(img, config="--psm 6")
+            texts.append(clean_ocr_text(txt))
+        except Exception:
+            continue
+    return texts
+
+
+def parse_pdf(file_bytes: bytes, allow_ocr: bool = True):
     """-> (rows, full_text)"""
     import pdfplumber
 
     builder = _RowBuilder()
     texts = []
+    use_ocr = allow_ocr and ocr_available()
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for pno, page in enumerate(pdf.pages, start=1):
             builder.set_page(pno)
+            page = _drop_ghost_spaces(page)
             blocks = _page_blocks(page)
+            if use_ocr and sum(_count_numeric_lines(b) for b in blocks) < 3 and page.images:
+                ocr_blocks = _ocr_page_blocks(page)
+                if sum(_count_numeric_lines(b) for b in ocr_blocks) >= 3:
+                    blocks = ocr_blocks
+                    builder.ocr_used = True
             for block in blocks:
                 texts.append(block)
                 _feed_text(builder, block)
@@ -254,6 +481,8 @@ def parse_pdf(file_bytes: bytes):
                                 _feed_text(builder, " ".join(cells))
                 except Exception:
                     pass
+    for r in builder.rows:
+        r.ocr = builder.ocr_used
     return builder.rows, "\n".join(texts)
 
 

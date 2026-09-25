@@ -159,8 +159,10 @@ def parse_number(raw):
     if not s or not re.fullmatch(r"[0-9][0-9.,]*", s):
         return None
     if "." in s and "," in s:
-        # separator terakhir = desimal
-        if s.rfind(",") > s.rfind("."):
+        groups = re.split(r"[.,]", s)
+        if all(len(g) == 3 for g in groups[1:]) and 1 <= len(groups[0]) <= 3:
+            s = "".join(groups)  # '15,795.918' (salah baca OCR) -> semuanya ribuan
+        elif s.rfind(",") > s.rfind("."):  # separator terakhir = desimal
             s = s.replace(".", "").replace(",", ".")
         else:
             s = s.replace(",", "")

@@ -27,7 +27,7 @@ from .template_model import SheetModel, is_ref_formula
 from .text import clean_label, similarity
 
 AUTO_THRESHOLD = 75
-EMPTY_ROW_THRESHOLD = 97
+_TOTAL_LABEL = re.compile(r"^\s*(total|jumlah|laba \(rugi\)|laba bersih|pendapatan \(beban\) .* bersih)", re.I)
 MIN_ANCHOR_ABS = 1000
 RELEVANT_SECTIONS = ("BS", "IS", "CAP")
 
@@ -56,15 +56,31 @@ class Layout:
     scale: float
     anchors: int
     comp_period_by_section: dict = field(default_factory=dict)
+    entity: str | None = None  # 'KONS' / 'IND' — dari header tabel
+    use_header: bool = False  # True -> kolom dipilih per baris dari header (periode+entitas)
 
 
 def _close(a: float, b: float) -> bool:
     return abs(a - b) <= max(1.0, 1e-6 * abs(b))
 
 
+_EXPENSE = re.compile(r"\b(beban|expenses?|impairment|kerugian terkait|losses related|taksiran pajak|estimated current)",
+                      re.I)
+_NOT_EXPENSE = re.compile(r"keuntungan|gain|\(beban\)|\(expenses?\)|pendapatan|income|revenue|bersih|net\b", re.I)
+
+
+def _is_expense(*labels) -> bool:
+    txt = " ".join(x or "" for x in labels)
+    return bool(_EXPENSE.search(txt)) and not _NOT_EXPENSE.search(labels[0] or "")
+
+
 class Matcher:
-    def __init__(self, model: SheetModel, source_rows, target_col: int, aliases: dict):
+    def __init__(self, model: SheetModel, source_rows, target_col: int, aliases: dict, period=None):
+        """period: (bulan, tahun) laporan — dipakai untuk memilih kolom angka dari
+        header tabel ('31 Des 2025'). Default: dari judul kolom tujuan di template."""
         self.model = model
+        from .periods import parse_period_label
+        self.period = period or parse_period_label(model.period_cols.get(target_col))
         self.source = [s for s in source_rows if s.section in RELEVANT_SECTIONS + ("?",)]
         self.target_col = target_col
         self.aliases = aliases
@@ -194,8 +210,53 @@ class Matcher:
             cur_idx = 2 if n_values >= 4 else 0
         if comp_idx is None:
             scale = self._guess_scale(cur_idx)
-        self.layout = Layout(n_values, comp_idx, cur_idx, scale, len(anchors), comp_by_sec)
+        # Header tabel ('INDIVIDUAL | KONSOLIDASIAN' + '31 Des 2025 | 31 Des 2024')
+        # -> entitas yang dipakai template = entitas kolom pembanding yang cocok histori
+        entity, use_header = None, False
+        with_hdr = [s for s in self.source if s.cols and s.section in RELEVANT_SECTIONS]
+        if cur_idx_override is None and self.period and len(with_hdr) >= 0.5 * max(1, len(
+                [s for s in self.source if s.section in RELEVANT_SECTIONS])):
+            ent_votes = Counter()
+            for tr, s, k, _, _ in anchors:
+                meta = self._col_meta(s)
+                if meta and k < len(meta) and meta[k][1]:
+                    ent_votes[meta[k][1]] += 1
+            if ent_votes:
+                entity = ent_votes.most_common(1)[0][0]
+            elif any(e == "KONS" for s in with_hdr for _, e in s.cols):
+                entity = "KONS"
+            use_header = any(p == self.period for s in with_hdr for p, _ in s.cols)
+        self.layout = Layout(n_values, comp_idx, cur_idx, scale, len(anchors), comp_by_sec, entity, use_header)
         return self.layout
+
+    @staticmethod
+    def _col_meta(sr):
+        """Metadata kolom sejajar dengan sr.values (kalau angkanya lebih sedikit dari
+        kolom header, diasumsikan rata kanan — mis. baris yang hanya punya angka
+        Konsolidasian)."""
+        if not sr.cols:
+            return None
+        if len(sr.values) == len(sr.cols):
+            return sr.cols
+        if len(sr.values) < len(sr.cols):
+            return sr.cols[len(sr.cols) - len(sr.values):]
+        return None
+
+    def _index_for(self, sr):
+        lay = self.layout
+        if lay.use_header:
+            meta = self._col_meta(sr)
+            if meta:
+                hits = [i for i, (p, e) in enumerate(meta) if p == self.period and (lay.entity is None or e in (lay.entity, None))]
+                if hits:
+                    return hits[-1] if lay.entity is None else hits[0]
+                if any(p for p, _ in meta):
+                    return None  # header ada tapi periode laporan tidak ada di tabel ini
+        i = lay.cur_idx
+        # baris yang hanya berisi separuh kolom (mis. hanya Konsolidasian)
+        if len(sr.values) <= i and lay.n_values >= 4 and len(sr.values) == lay.n_values // 2 and i >= lay.n_values // 2:
+            return i - lay.n_values // 2
+        return i if i < len(sr.values) else None
 
     def _guess_scale(self, cur_idx):
         """Tanpa pola angka: bandingkan akun yang namanya persis sama dengan nilai
@@ -223,7 +284,8 @@ class Matcher:
 
     # ------------------------------------------------------------ scoring
     def current_value(self, sr):
-        v = sr.value_at(self.layout.cur_idx)
+        i = self._index_for(sr)
+        v = None if i is None else sr.value_at(i)
         return None if v is None else v * self.layout.scale
 
     def _label_score(self, tr, sr):
@@ -269,7 +331,7 @@ class Matcher:
     def score_pairs(self):
         anchor_map = defaultdict(dict)  # tr.row -> sr.idx -> sign
         for tr, s, k, _, sign in self._anchors:
-            if k != self.layout.cur_idx:
+            if k != self._index_for(s):
                 anchor_map[tr.row][s.idx] = sign
         pairs = []
         for tr in self._value_rows:
@@ -314,6 +376,14 @@ class Matcher:
         if sign == -1 or (sign is None and contra and v > 0 and len(hist) >= 2 and all(h < 0 for h in hist)):
             v = -v
             notes.append("tanda disesuaikan ke konvensi template")
+        # akun BEBAN: laporan kadang menulis beban dalam kurung (negatif), template
+        # menyimpan positif (atau sebaliknya) -> ikuti tanda histori template
+        if v and len(hist) >= 2 and _is_expense(tr.label, sr.label):
+            want = 1 if all(h > 0 for h in hist) else -1 if all(h < 0 for h in hist) else 0
+            if want and (v > 0) != (want > 0):
+                v = -v
+                if "tanda disesuaikan ke konvensi template" not in notes:
+                    notes.append("tanda disesuaikan ke konvensi template")
         return v, notes
 
     # ------------------------------------------------------------ main
@@ -327,6 +397,7 @@ class Matcher:
             assigned[tr.row] = (score, sr, method, note, sign)
             used.add(sr.idx)
         self._fix_crossings(assigned)
+        self.extras = self._find_sum_patterns(assigned)
 
         results = []
         for tr in self.model.rows:
@@ -343,26 +414,127 @@ class Matcher:
                 v, notes = self.value_for(tr, sr, sign)
                 if note:
                     notes.insert(0, note)
+                if tr.row in self.extras and v is not None:
+                    base = self.current_value(sr)
+                    factor = (v / base) if base else 1.0
+                    for ex in self.extras[tr.row]:
+                        v += factor * (self.current_value(ex) or 0.0)
+                    notes.insert(0, "+ " + " + ".join(f"'{ex.label}'" for ex in self.extras[tr.row])
+                                 + " (digabung sesuai pola histori template)")
+                    method = "Pola penjumlahan"
                 res.source_idx, res.source_label = sr.idx, sr.label
                 res.score, res.method = round(min(score, 100.0), 1), method
-                if filled:
-                    ok = score >= AUTO_THRESHOLD and v is not None
-                else:
-                    # baris yang biasanya kosong hanya diisi kalau namanya hampir persis
-                    # sama, angkanya bukan nol, dan bukan baris judul
-                    heading = tr.level == 0 and tr.label.upper() == tr.label
-                    ok = score >= EMPTY_ROW_THRESHOLD and v not in (None, 0) and not heading
+                # baris yang di histori template biasanya kosong (induk/subtotal, akun yang
+                # ditaruh di baris lain) TIDAK diisi otomatis -> cuma saran, hindari dobel hitung
+                ok = filled and score >= AUTO_THRESHOLD and v is not None
                 if ok:
                     res.value = v
                 elif filled:
                     notes.append("skor rendah — cek manual")
                 elif v not in (None, 0):
-                    notes.append("biasanya kosong — tidak diisi otomatis")
+                    notes.append("biasanya kosong di template — tidak diisi otomatis (saran saja)")
                 res.note = "; ".join(n for n in notes if n)
+            elif tr.row in getattr(self, "combo_rows", {}):
+                parts = self.combo_rows[tr.row]
+                cur = [self.current_value(x) for x in parts]
+                if all(v is not None for v in cur):
+                    res.value = sum(cur)
+                res.source_idx, res.source_label = parts[0].idx, parts[0].label
+                res.score, res.method = 95.0, "Pola penjumlahan"
+                res.note = "= " + " + ".join(f"'{x.label}'" for x in parts) + " (sesuai pola histori template)"
             elif filled:
                 res.note = "tidak ketemu di laporan — isi manual"
             results.append(res)
         return results
+
+    def comp_value(self, sr, section):
+        """Angka PEMBANDING (periode lalu) dari baris laporan untuk seksi tsb."""
+        from .periods import parse_period_label
+        lay = self.layout
+        label = lay.comp_period_by_section.get(section)
+        per = parse_period_label(label) if label else None
+        meta = self._col_meta(sr)
+        if lay.use_header and meta and per:
+            for i, (p, e) in enumerate(meta):
+                if p == per and (lay.entity is None or e in (lay.entity, None)):
+                    return sr.values[i] * lay.scale
+            return None
+        if lay.comp_idx is None:
+            return None
+        v = sr.value_at(lay.comp_idx)
+        return None if v is None else v * lay.scale
+
+    def _find_sum_patterns(self, assigned):
+        """Konvensi analis: satu baris template kadang = JUMLAH beberapa akun laporan
+        (mis. 'Aset lainnya' = Aset lainnya + Aset keuangan lainnya). Terdeteksi dari
+        histori: angka pembanding laporan != histori template, tapi selisihnya persis
+        sama dengan 1-3 akun laporan lain yang belum terpakai.
+        Baris template yang belum punya pasangan sama sekali juga dicoba: mungkin
+        di laporan dipecah (mis. 'Penghasilan komprehensif lain' = Keuntungan + Kerugian).
+        Return: row -> list akun tambahan. Baris tanpa pasangan yang ketemu kombinasinya
+        disimpan di self.combo_rows (row -> list akun)."""
+        import itertools
+
+        self.combo_rows = {}
+        if not getattr(self, "layout", None) or not self.layout.comp_period_by_section:
+            return {}
+        rows_by_num = {r.row: r for r in self.model.rows}
+        label_to_col = {v: c for c, v in self.model.period_cols.items()}
+        used = {a[1].idx for r, a in assigned.items() if self.usually_filled(rows_by_num[r])}
+        extras = {}
+
+        def hist_at_comp(tr):
+            ccol = label_to_col.get(self.layout.comp_period_by_section.get(tr.section))
+            return tr.numeric(ccol) if ccol else None
+
+        def candidates(tr):
+            out = []
+            for s in self.source:
+                if s.idx in used or not self._sections_ok(tr, s) or s.section == "?":
+                    continue
+                cv = self.comp_value(s, tr.section)
+                if cv is not None and abs(cv) >= 1 and s.values and not _TOTAL_LABEL.search(s.label):
+                    out.append((s, cv))
+            return out[:60]
+
+        def unique_combo(cands, target, max_k=3):
+            for k in range(1, max_k + 1):
+                hits = [c for c in itertools.combinations(cands, k) if _close(sum(cv for _, cv in c), target)]
+                if len(hits) == 1:
+                    return [s for s, _ in hits[0]]
+                if len(hits) > 1:
+                    return None
+            return None
+
+        for row, (score, sr, method, note, sign) in sorted(assigned.items()):
+            tr = rows_by_num[row]
+            if method == "Pola angka" or not self.usually_filled(tr):
+                continue
+            h, c = hist_at_comp(tr), self.comp_value(sr, tr.section)
+            if h is None or c is None:
+                continue
+            d = h - (-c if sign == -1 else c)
+            if abs(d) < MIN_ANCHOR_ABS:
+                continue
+            combo = unique_combo(candidates(tr), d)
+            if combo:
+                extras[row] = combo
+                used.update(x.idx for x in combo)
+
+        for tr in self._value_rows:
+            if tr.row in assigned or tr.row in self._redirected_parents or not self.usually_filled(tr):
+                continue
+            h = hist_at_comp(tr)
+            if h is None or abs(h) < MIN_ANCHOR_ABS:
+                continue
+            # minimal salah satu akun (atau induknya) namanya mirip -> hindari kebetulan angka
+            cands = [(s, cv) for s, cv in candidates(tr)
+                     if max(similarity(tr.label, s.label), similarity(tr.label, s.parent or "")) >= 60]
+            combo = unique_combo(cands, h)
+            if combo and len(combo) >= 2:
+                self.combo_rows[tr.row] = combo
+                used.update(x.idx for x in combo)
+        return extras
 
     def _fix_crossings(self, assigned):
         """Label kembar (mis. 'PEMILIK', 'KEPENTINGAN NON PENGENDALI' muncul 2x) harus
@@ -545,6 +717,13 @@ def reconcile(matcher: Matcher, values: dict):
             continue
         diff = abs(v) - abs(src)
         ok = abs(diff) <= 5  # toleransi pembulatan (juta rupiah)
+        info = ""
+        if not ok:
+            # selisih persis = satu akun laporan -> biasanya beda klasifikasi
+            same = [s for s in matcher.source if s.section == tr.section and matcher.current_value(s) is not None
+                    and abs(abs(matcher.current_value(s)) - abs(diff)) <= 1 and abs(diff) >= 1]
+            if same:
+                info = f"selisih = '{same[0].label}' (cek klasifikasi)"
         checks.append({
             "Seksi": tr.section,
             "Baris": r,
@@ -554,6 +733,7 @@ def reconcile(matcher: Matcher, values: dict):
             "Akun laporan": m[1].label,
             "Selisih": diff,
             "Status": "OK" if ok else "BEDA",
+            "Keterangan": info,
         })
     # neraca harus seimbang
     ta = next((r for r in model.rows if r.section == "BS" and clean_label(r.label) == "total aset"), None)
@@ -564,6 +744,6 @@ def reconcile(matcher: Matcher, values: dict):
         checks.append({
             "Seksi": "BS", "Baris": tl.row, "Total (template)": "Aset = Liabilitas + Ekuitas",
             "Hasil hitung": computed[tl.row], "Di laporan": computed[ta.row], "Akun laporan": "TOTAL ASET (template)",
-            "Selisih": d, "Status": "OK" if abs(d) <= 5 else "BEDA",
+            "Selisih": d, "Status": "OK" if abs(d) <= 5 else "BEDA", "Keterangan": "",
         })
     return checks

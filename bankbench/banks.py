@@ -44,7 +44,7 @@ def detect_bank(text: str, source_rows, models: dict, aliases: dict):
     for name, model in models.items():
         kw_hits = sum(head.count(k) for k in _keywords_for(model))
         latest = model.latest_period()
-        m = Matcher(model, source_rows, model.last_period_col() + 1, aliases)
+        m = Matcher(model, source_rows, model.last_period_col() + 1, aliases, period=(12, 1900))
         anchors = len(m._find_anchors(1.0))
         score = anchors * 2 + min(kw_hits, 5) * 10 + ((latest[1] * 12 + latest[0]) / 1e4 if latest else 0)
         reason = f"{anchors} angka cocok dgn histori, nama bank {'ditemukan' if kw_hits else 'tidak ditemukan'}"

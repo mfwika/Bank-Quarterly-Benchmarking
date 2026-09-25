@@ -54,9 +54,22 @@ python -m pytest -q -m "not slow"
 Test end-to-end membuat laporan publikasi sintetis (format OJK, 4 kolom Bank/Konsolidasian)
 dari angka yang ada di template, lalu memastikan sistem bisa merekonstruksi kolom tersebut.
 
+## Yang sudah diuji dengan laporan asli (Des 2025)
+
+| Laporan | Format | Hasil |
+|---|---|---|
+| BCA (13 hal.) | PDF teks, spasi "hantu" di dalam angka | Neraca seimbang, semua total Laba Rugi & KPMM cocok |
+| Mandiri | 1 halaman koran, 3 kolom | Total cocok kecuali akun baru (PSAK 117, aset dikuasai untuk dijual) |
+| SMBC Indonesia | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; Total Aset cocok, perlu review |
+
+Fitur yang lahir dari uji tersebut: pembacaan header tabel (periode + Individual/Konsolidasian
+per kolom), pemisahan layout multi-kolom, OCR, kamus istilah Inggris, dan **pola penjumlahan**
+(mis. template "Aset lainnya" = Aset lainnya + Aset keuangan lainnya, terdeteksi dari histori).
+
 ## Catatan
 
-- PDF hasil scan (gambar) tidak bisa dibaca — pakai PDF teks atau Excel dari website bank / OJK.
+- PDF berupa gambar dibaca dengan OCR (Tesseract, `packages.txt` untuk Streamlit Cloud). Hasil OCR
+  tetap perlu dicek.
 - openpyxl tidak menyimpan ulang chart/gambar di workbook; kalau template punya chart,
   salin sheet hasil update ke file aslimu.
 - Pemetaan hasil koreksi bisa di-download sebagai `mappings.json`; commit ke repo supaya permanen.

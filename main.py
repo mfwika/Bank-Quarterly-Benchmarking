@@ -24,7 +24,7 @@ from bankbench.aliases import MAPPINGS_PATH, add_learned, load_learned, merged_a
 from bankbench.banks import detect_bank, sheet_display
 from bankbench.matcher import Matcher, reconcile
 from bankbench.periods import detect_report_period, format_period_label
-from bankbench.source_parser import parse_source
+from bankbench.source_parser import ocr_available, parse_source
 from bankbench.template_model import SECTION_NAMES, load_bank_models
 from bankbench.writer import apply_to_workbook
 
@@ -119,7 +119,7 @@ if not uploads:
 
 parsed = {}
 for f in uploads:
-    with st.spinner(f"Membaca '{f.name}'..."):
+    with st.spinner(f"Membaca '{f.name}'... (PDF berupa gambar dibaca pakai OCR, bisa ±1 menit)"):
         try:
             rows, text = parse_cached(f.name, f.getvalue())
         except Exception as e:  # file rusak / terenkripsi / bukan PDF teks
@@ -128,8 +128,9 @@ for f in uploads:
     relevant = [r for r in rows if r.section in ("BS", "IS", "CAP", "?")]
     if not relevant:
         st.error(
-            f"Tidak ada akun + angka yang terbaca dari '{f.name}'. Kalau PDF-nya hasil scan (gambar), "
-            "sistem tidak bisa membaca teksnya — pakai versi PDF teks / Excel dari website bank / OJK."
+            f"Tidak ada akun + angka yang terbaca dari '{f.name}'. Kalau PDF-nya berupa gambar/scan, "
+            + ("OCR sudah dicoba tapi gagal — " if ocr_available() else "OCR (Tesseract) belum terpasang di server — ")
+            + "pakai versi PDF teks / Excel dari website bank / OJK."
         )
         continue
     parsed[file_key(f)] = (f, rows, text)
@@ -253,7 +254,10 @@ for tab, (fk, (f, rows, text)) in zip(tabs, parsed.items()):
                        f"(setelah '{model.period_cols[model.last_period_col()]}'); formula & format disalin "
                        f"dari kolom {get_column_letter(ref_col)}.")
 
-        matcher = Matcher(model, rows, target_col, aliases)
+        if any(getattr(r, "ocr", False) for r in rows):
+            st.warning("📷 Tabel di file ini berupa **gambar**, dibaca dengan OCR. Angka hasil OCR bisa salah "
+                       "baca (mis. 7 ↔ 1) — cek terutama baris yang skornya rendah & tabel 'Cek total'.")
+        matcher = Matcher(model, rows, target_col, aliases, period=(month, int(year)))
         layout = matcher.detect_layout()
         with st.expander("🔢 Kolom angka yang dipakai dari laporan", expanded=layout.comp_idx is None):
             if layout.comp_idx is not None:
@@ -309,7 +313,7 @@ for tab, (fk, (f, rows, text)) in zip(tabs, parsed.items()):
         m1.metric("Akun yang biasa diisi", n_val)
         m2.metric("Terisi otomatis", n_filled)
         m3.metric("Perlu dicek", n_check)
-        m4.metric("Cocok via pola angka", int((df["Metode"] == "Pola angka").sum()))
+        m4.metric("Cocok via pola angka", int(df["Metode"].isin(["Pola angka", "Pola penjumlahan"]).sum()))
 
         fc1, fc2 = st.columns([3, 2])
         with fc1:
@@ -358,7 +362,8 @@ for tab, (fk, (f, rows, text)) in zip(tabs, parsed.items()):
                     show[c] = show[c].map(fmt_num)
                 st.dataframe(show, width="stretch", hide_index=True)
                 st.caption("Total dihitung dari formula template memakai angka yang akan diisi, lalu dibandingkan "
-                           "dengan total di laporan. 'BEDA' = ada akun yang salah pasang / belum terisi.")
+                           "dengan total di laporan. 'BEDA' = ada akun yang salah pasang / belum terisi, atau beda "
+                           "klasifikasi (lihat Keterangan — mis. akun baru yang belum ada barisnya di template).")
 
         notes = {}
         for r, row in df.iterrows():

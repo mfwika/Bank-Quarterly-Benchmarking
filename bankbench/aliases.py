@@ -84,6 +84,98 @@ SEED_ALIASES = {
 }
 
 
+# Laporan publikasi versi bahasa Inggris (mis. SMBC Indonesia, bank asing)
+ENGLISH_ALIASES = {
+    "BS": {
+        "kas": ["cash"],
+        "penempatan pada bank indonesia": ["placements with bank indonesia"],
+        "penempatan pada bank lain": ["placements with other banks"],
+        "tagihan spot dan derivatif": ["spot and derivative forward receivables", "spot and derivative receivables"],
+        "surat berharga": ["securities", "marketable securities"],
+        "surat berharga yang dijual dengan janji dibeli kembali repo": [
+            "securities sold under repurchase agreements repo", "securities sold under repurchase agreements"],
+        "tagihan atas surat berharga yang dibeli dengan janji dijual kembali reverse repo": [
+            "claims from securities purchased under resale agreements reverse repo",
+            "securities purchased under resale agreements reverse repo"],
+        "tagihan akseptasi": ["acceptance receivables"],
+        "pinjaman yang diberikan dan piutang | kredit": ["loans", "loans and financing"],
+        "pembiayaan syariah": ["sharia financing", "sharia financing receivables"],
+        "penyertaan": ["equity investments", "investments"],
+        "surat berharga | cadangan kerugian penurunan nilai aset keuangan": ["securities"],
+        "kredit | cadangan kerugian penurunan nilai aset keuangan": ["loans and sharia financing", "loans"],
+        "lainnya | cadangan kerugian penurunan nilai aset keuangan": ["others"],
+        "aset tidak berwujud": ["intangible assets"],
+        "akumulasi amortisasi aset tidak berwujud": ["accumulated amortization of intangible assets"],
+        "aset tetap dan inventaris": ["fixed assets and equipment", "premises and equipment"],
+        "akumulasi penyusutan aset tetap dan inventaris": [
+            "accumulated depreciation on fixed assets and equipment", "accumulated depreciation of fixed assets"],
+        "properti terbengkalai | aset non produktif": ["abandoned properties", "abandoned property"],
+        "aset yang diambil alih | aset non produktif": ["foreclosed assets", "foreclosed collateral"],
+        "rekening tunda | aset non produktif": ["suspense accounts"],
+        "aset lainnya": ["other assets"],
+        "giro": ["demand deposits", "current accounts"],
+        "tabungan": ["saving deposits", "savings deposits"],
+        "simpanan berjangka": ["time deposits"],
+        "pinjaman dari bank indonesia": ["liabilities to bank indonesia"],
+        "pinjaman dari bank lain": ["liabilities to other banks"],
+        "liabilitas spot dan derivatif": ["spot and derivative forward liabilities", "spot and derivative liabilities"],
+        "utang akseptasi": ["acceptance liabilities"],
+        "surat berharga yang diterbitkan": ["securities issued", "debt securities issued"],
+        "pinjaman yang diterima lainnya | pinjaman yang diterima": ["borrowings", "fund borrowings"],
+        "setoran jaminan": ["margin deposits", "security deposits"],
+        "liabilitas lainnya": ["other liabilities"],
+        "modal dasar | modal disetor": ["authorized capital"],
+        "modal yang belum disetor | modal disetor": ["unpaid capital"],
+        "saham yang dibeli kembali treasury stock | modal disetor": ["treasury stock"],
+        "agio | tambahan modal disetor": ["agio", "share premium"],
+        "pendapatan kerugian komprehensif lainnya": ["other comprehensive income"],
+        "cadangan umum | cadangan": ["general reserves", "reserves"],
+        "tahun tahun lalu | laba rugi": ["previous years", "prior years"],
+        "tahun berjalan | laba rugi": ["current year"],
+        "kepentingan non pengendali": ["non controlling interest", "minority interest"],
+    },
+    "IS": {
+        "pendapatan bunga": ["interest income"],
+        "beban bunga": ["interest expense", "interest expenses"],
+        "peningkatan nilai wajar aset keuangan mark to market": [
+            "gain loss from increase decrease in fair value of financial assets"],
+        "keuntungan penjualan aset keuangan": ["gain loss from sale of financial assets"],
+        "keuntungan transaksi spot dan derivatif realised": [
+            "gain loss from spot and derivative forward transactions realised"],
+        "deviden": ["dividend income", "dividends"],
+        "komisi provisi fee dan administrasi | pendapatan operasional selain bunga": [
+            "commissions provisions fees and administrative", "fees and commissions income"],
+        "pendapatan lainnya": ["other income"],
+        "kerugian penurunan nilai aset keuangan impairment": ["impairment losses on financial assets",
+                                                              "allowance for impairment losses on financial assets"],
+        "kerugian terkait risiko operasional": ["losses related to operational risk"],
+        "beban tenaga kerja": ["personnel expenses", "salaries and employee benefits"],
+        "beban promosi": ["promotion expenses"],
+        "beban lainnya": ["other expenses"],
+        "keuntungan kerugian penjualan aset tetap dan inventaris": ["gain loss from sale of fixed assets and equipment"],
+        "pendapatan beban non operasional lainnya": ["other non operating income expenses"],
+        "taksiran pajak periode berjalan": ["current tax", "estimated current tax"],
+        "pendapatan beban pajak tangguhan": ["deferred tax income expenses", "deferred tax"],
+        "pemilik": ["owners", "owner", "equity holders of the parent"],
+        "kepentingan non pemilik": ["non controlling interest", "non controlling interests"],
+        "dividen": ["dividends"],
+        "laba bersih per saham": ["earnings per share", "basic earnings per share"],
+    },
+    "CAP": {
+        "modal disetor": ["paid in capital less treasury stock", "paid in capital"],
+        "cadangan tambahan modal disclosed reserve": ["disclosed reserves", "additional reserves"],
+        "faktor pengurang modal inti": ["deduction factor to common equity tier 1", "deduction factor"],
+        "level atas upper tier 2": ["supplementary capital tier 2", "tier 2 capital"],
+        "aset tertimbang menurut risiko atmr untuk risiko kredit": ["rwa credit risk", "credit risk weighted assets"],
+        "aset tertimbang menurut risiko atmr untuk risiko operasional": ["rwa operational risk"],
+        "aset tertimbang menurut risiko atmr untuk risiko pasar": ["rwa market risk"],
+    },
+}
+for _sec, _d in ENGLISH_ALIASES.items():
+    for _k, _v in _d.items():
+        SEED_ALIASES.setdefault(_sec, {}).setdefault(_k, []).extend(_v)
+
+
 def alias_key(label, parent=None) -> str:
     k = clean_label(label)
     return f"{k} | {clean_label(parent)}" if parent else k
