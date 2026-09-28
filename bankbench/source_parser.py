@@ -42,6 +42,8 @@ class SourceRow:
     page: int | None = None
     cols: list | None = None  # per posisi angka: ((bulan, tahun) | None, 'IND'/'KONS' | None)
     ocr: bool = False  # hasil OCR (angka perlu dicek lebih teliti)
+    cats: list | None = None  # kolektibilitas per kolom (L/DPK/KL/D/M/JUMLAH) di tabel kualitas aset
+    ancestors: list | None = None  # semua induk (paling luar dulu)
 
     def value_at(self, i):
         return self.values[i] if 0 <= i < len(self.values) else None
@@ -56,6 +58,8 @@ def _heading_section(text: str):
     if not titled and sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
         return None
     u = text.upper()
+    if re.search(r"\bUUS\b|UNIT USAHA SYARIAH", u):
+        return "OTHER"  # laporan Unit Usaha Syariah: bukan laporan bank secara keseluruhan
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
             return key
@@ -95,7 +99,28 @@ def parse_entity_header(line: str):
     return [_ENTITY_WORDS.get(h.lower(), "IND") for h in hits]
 
 
-def _combine_header(dates, ents, n_values=None):
+_CAT_WORDS = {"l": "L", "lancar": "L", "dpk": "DPK", "kl": "KL", "d": "D", "m": "M", "macet": "M",
+              "jumlah": "JUMLAH", "total": "JUMLAH", "current": "L", "sm": "DPK", "ss": "KL"}
+
+
+def parse_category_header(line: str):
+    """'L DPK KL D M JUMLAH L DPK KL D M JUMLAH' -> ['L','DPK','KL','D','M','JUMLAH', ...]
+    (kolektibilitas di tabel Kualitas Aset Produktif)."""
+    toks = re.findall(r"[A-Za-z]+", line)
+    if len(toks) < 5 or re.search(r"\d", line):
+        return None
+    cats = [_CAT_WORDS.get(t.lower()) for t in toks]
+    if any(c is None for c in cats) or "DPK" not in cats or "KL" not in cats:
+        return None
+    return cats
+
+
+def _combine_header(dates, ents, n_values=None, cats=None):
+    if cats and dates and len(cats) % len(dates) == 0:
+        width = len(cats)
+        per = [d for d in dates for _ in range(width // len(dates))]
+        ent = (ents[0] if ents and len(set(ents)) == 1 else None)
+        return [(p, ent) for p in per]
     if not dates and not ents:
         return None
     # header yg mencakup 2 tabel berdampingan ('Individual Konsolidasian' x4,
@@ -147,12 +172,18 @@ class _RowBuilder:
         self.page = None
         self.dates = None
         self.ents = None
+        self.cats = None
         self.ocr_used = False
 
     def header_line(self, line) -> bool:
+        c = parse_category_header(line)
+        if c:
+            self.cats = c
+            return True
         d = parse_date_header(line)
         if d:
             self.dates = d
+            self.cats = None
             return True
         e = parse_entity_header(line)
         if e:
@@ -184,12 +215,15 @@ class _RowBuilder:
         return parent
 
     def heading(self, section):
+        if section != self.section:
+            # tabel baru -> header kolom lama tidak berlaku lagi
+            self.dates = None
+            self.ents = None
+            self.cats = None
         self.section = section
         self.stack = []
         self.pending = None
         self.last_letter = None
-        self.dates = None
-        self.ents = None
 
     def text_only(self, text, token=None, ends_colon=False):
         """Baris tanpa angka: judul seksi, induk akun, atau potongan label."""
@@ -221,8 +255,12 @@ class _RowBuilder:
         if not re.search(r"[A-Za-z]{2,}", label):
             return
         parent = self._push(self._level(token), label)
-        self.rows.append(SourceRow(len(self.rows), label, list(values), self.section, parent, self.page,
-                                   _combine_header(self.dates, self.ents, len(values))))
+        cols = _combine_header(self.dates, self.ents, len(values), self.cats)
+        row = SourceRow(len(self.rows), label, list(values), self.section, parent, self.page, cols)
+        row.ancestors = [lbl for _, lbl in self.stack if lbl != label]
+        if self.cats and cols and len(cols) == len(self.cats):
+            row.cats = list(self.cats)
+        self.rows.append(row)
 
 
 # ---------------------------------------------------------------------------------
@@ -286,7 +324,7 @@ def _feed_text(builder: _RowBuilder, text: str):
         raw = raw.strip()
         if not raw:
             continue
-        if parse_date_header(raw) or parse_entity_header(raw):
+        if parse_date_header(raw) or parse_entity_header(raw) or parse_category_header(raw):
             lines.append(raw)
         else:
             lines.extend(split_segments(raw))
@@ -318,20 +356,40 @@ def _count_numeric_lines(text: str) -> int:
 
 
 def _drop_ghost_spaces(page):
-    """Beberapa PDF (mis. BCA) menaruh karakter spasi yang MENUMPUK di posisi digit
-    pertama, sehingga '25.275.044' terbaca '2 5.275.044'. Spasi yang posisinya sama
-    dengan karakter lain dibuang dulu."""
+    """Beberapa PDF (mis. BCA, Permata) menaruh karakter spasi yang MENUMPUK di atas
+    digit, sehingga '25.275.044' terbaca '2 5.275.044'. Spasi yang titik tengahnya
+    jatuh di dalam karakter lain (baris yang sama) dibuang dulu."""
     try:
-        solid = {(round(c["top"]), round(c["x0"])) for c in page.chars if c["text"].strip()}
+        chars = page.chars
     except Exception:
         return page
+    solid = {}
+    for c in chars:
+        if c["text"].strip():
+            solid.setdefault(round(c["top"]), []).append((c["x0"], c["x1"]))
     if not solid:
         return page
+    for v in solid.values():
+        v.sort()
+
+    import bisect
+
+    def inside(obj):
+        mid = (obj["x0"] + obj["x1"]) / 2
+        for key in (round(obj["top"]) - 1, round(obj["top"]), round(obj["top"]) + 1):
+            spans = solid.get(key)
+            if not spans:
+                continue
+            i = bisect.bisect_right(spans, (mid, float("inf")))
+            for x0, x1 in spans[max(0, i - 2):i]:
+                if x0 - 0.05 <= mid <= x1 + 0.05:
+                    return True
+        return False
 
     def keep(obj):
         if obj.get("object_type") != "char" or obj.get("text") != " ":
             return True
-        return (round(obj["top"]), round(obj["x0"])) not in solid
+        return not inside(obj)
 
     return page.filter(keep)
 
@@ -385,14 +443,170 @@ def _split_columns(page, x0, x1, depth=0):
     return [text]
 
 
+def _layout_blocks(page):
+    """Susun ulang teks halaman per KOLOM TABEL berdasarkan posisi kata.
+
+    1. kata -> 'segmen' (kata-kata berdempetan di baseline yang sama = satu frasa:
+       label atau angka)
+    2. awal kolom = posisi x label yang di kanannya ada angka (dikelompokkan)
+    3. tiap segmen masuk ke kolom terdekat di kirinya; di dalam kolom, segmen
+       disusun jadi baris dengan toleransi tinggi yang ketat (baris dari kolom lain
+       yang bergeser 1-2 pt tidak ikut tergabung).
+    Return list teks per kolom (atau None kalau tidak cocok dipakai)."""
+    try:
+        words = page.extract_words(x_tolerance=1.5, y_tolerance=1)
+    except Exception:
+        return None
+    if len(words) < 30:
+        return None
+    heights = sorted(w["bottom"] - w["top"] for w in words)
+    tol = max(1.0, 0.35 * heights[len(heights) // 2])  # toleransi baris ~35% tinggi huruf
+    words.sort(key=lambda w: (round(w["top"] / tol), w["x0"]))
+    segs = []  # dict(x0, x1, top, text)
+    for w in words:
+        last = segs[-1] if segs else None
+        gap_limit = max(4.0, 1.4 * (w["bottom"] - w["top"]))
+        if last and abs(w["top"] - last["top"]) < tol and 0 <= w["x0"] - last["x1"] < gap_limit:
+            last["text"] += " " + w["text"]
+            last["x1"] = w["x1"]
+        else:
+            segs.append({"x0": w["x0"], "x1": w["x1"], "top": w["top"], "text": w["text"]})
+
+    def is_num(seg):
+        toks = seg["text"].split()
+        if len(toks) == 1 and re.fullmatch(r"\d{1,2}(\.\d{1,2})*\.", toks[0]):
+            return False  # nomor urut '1.', '10.', '1.2.' -> bukan angka
+        # '-' (= nol) juga angka, supaya posisi kolom tidak bergeser
+        return all(is_number_token(t) for t in toks)
+
+    by_line = {}
+    for sg in segs:
+        by_line.setdefault(int(sg["top"] // tol), []).append(sg)
+
+    def same_line(sg):
+        key = int(sg["top"] // tol)
+        out = []
+        for k in (key - 1, key, key + 1):
+            out.extend(o for o in by_line.get(k, []) if abs(o["top"] - sg["top"]) < tol)
+        return out
+
+    starts = []  # (x0, top, x angka pertama) label yang langsung diikuti angka
+    for sg in segs:
+        if is_num(sg) or not re.search(r"[A-Za-z]{2,}", sg["text"]):
+            continue
+        right = sorted((o for o in same_line(sg) if o["x0"] > sg["x1"] - 1), key=lambda o: o["x0"])
+        if right and is_num(right[0]):
+            starts.append((sg["x0"], sg["top"], right[0]["x0"]))
+        elif re.search(r"\d[\d.,]*\)?\s*$", sg["text"]):
+            starts.append((sg["x0"], sg["top"], sg["x1"]))
+    if len(starts) < 5:
+        return None
+    starts.sort()
+    groups = []
+    for x, top, nx in starts:
+        g = groups[-1] if groups else None
+        if g and x - g["xs"][-1] <= 3:
+            g["xs"].append(x)
+            g["tops"].append(top)
+            g["nxs"].append(nx)
+        else:
+            groups.append({"xs": [x], "tops": [top], "nxs": [nx]})
+    groups = [{"x": min(g["xs"]), "ymin": min(g["tops"]), "ymax": max(g["tops"]), "n": len(g["xs"]),
+               "numx": sorted(g["nxs"])[len(g["nxs"]) // 2]} for g in groups]
+    # label yang masih di KIRI angka suatu tabel = indentasi tabel itu (a., 1.2.1., dst)
+    merged = []
+    for g in sorted(groups, key=lambda g: g["x"]):
+        host = next((m for m in merged if m["x"] <= g["x"] < m["numx"] - 5
+                     and g["ymin"] <= m["ymax"] + 40 and g["ymax"] >= m["ymin"] - 40), None)
+        if host:
+            host["ymin"], host["ymax"] = min(host["ymin"], g["ymin"]), max(host["ymax"], g["ymax"])
+            host["n"] += g["n"]
+        else:
+            merged.append(dict(g))
+    cols_def = [g for g in merged if g["n"] >= 3]
+    if not cols_def:
+        return None
+
+    def col_of(sg):
+        # 1) kolom yang rentang vertikalnya benar-benar mencakup posisi ini
+        # 2) kalau tidak ada: longgarkan (judul/header tabel ada di atas baris pertama)
+        for lo, hi in ((2, 2), (80, 20)):
+            cands = [i for i, g in enumerate(cols_def)
+                     if g["x"] <= sg["x0"] + 15 and g["ymin"] - lo <= sg["top"] <= g["ymax"] + hi]
+            if cands:
+                return max(cands, key=lambda i: cols_def[i]["x"])
+        cands = [i for i, g in enumerate(cols_def) if g["x"] <= sg["x0"] + 15] or [0]
+        return max(cands, key=lambda i: cols_def[i]["x"])
+
+    order = sorted(range(len(cols_def)), key=lambda i: (cols_def[i]["x"], cols_def[i]["ymin"]))
+    cols = {i: [] for i in order}
+    label_col = {}
+    for sg in segs:
+        if not is_num(sg):
+            label_col[id(sg)] = col_of(sg)
+    for sg in segs:
+        if is_num(sg):
+            # angka ikut kolom LABA-nya: label terdekat di kiri pada baris yang sama
+            left = [o for o in same_line(sg) if not is_num(o) and o["x1"] <= sg["x0"] + 1
+                    and re.search(r"[A-Za-z]{2,}", o["text"])]
+            if left:
+                cols[label_col[id(max(left, key=lambda o: o["x1"]))]].append(sg)
+                continue
+            cols[col_of(sg)].append(sg)
+        else:
+            cols[label_col[id(sg)]].append(sg)
+    cols = [cols[i] for i in order]
+
+    blocks = []
+    for col in cols:
+        col.sort(key=lambda o: (o["top"], o["x0"]))
+        lines, cur, cur_top = [], [], None
+        for sg in col:
+            if cur and abs(sg["top"] - cur_top) >= tol:
+                lines.append(" ".join(o["text"] for o in sorted(cur, key=lambda o: o["x0"])))
+                cur = []
+            cur.append(sg)
+            cur_top = sum(o["top"] for o in cur) / len(cur)  # rata-rata: toleran baris miring
+        if cur:
+            lines.append(" ".join(o["text"] for o in sorted(cur, key=lambda o: o["x0"])))
+        blocks.append("\n".join(lines))
+    return blocks
+
+
 def _page_blocks(page):
     """Laporan publikasi di koran/web sering multi-kolom (Neraca | Laba Rugi | ...).
     Kalau ada 'selokan' vertikal yang jelas, halaman dipecah per kolom supaya baris
     dari kolom yang berbeda tidak tercampur."""
     try:
-        return _split_columns(page, 0, page.width)
+        old = _split_columns(page, 0, page.width)
     except Exception:
-        return [page.extract_text() or ""]
+        old = [page.extract_text() or ""]
+    new = _layout_blocks(page)
+    if new is None:
+        return old
+    # pilih susunan yang menghasilkan lebih banyak baris lengkap:
+    # label + angka + header kolom (periode/entitas) yang jumlahnya pas
+    return new if _blocks_quality(new) > _blocks_quality(old) else old
+
+
+def _blocks_quality(blocks) -> float:
+    b = _RowBuilder()
+    for text in blocks:
+        _feed_text(b, text)
+    score = 0.0
+    for r in b.rows:
+        if not r.values:
+            continue
+        if r.cols and any(p for p, _ in r.cols):
+            if len(r.cols) == len(r.values):
+                score += 1.0
+            elif len(r.values) < len(r.cols):
+                score += 0.6
+            else:
+                score -= 0.5  # angka lebih banyak dari kolom header -> baris tercampur
+        else:
+            score += 0.2
+    return score
 
 
 # ---------------------------------------------------------------------------------

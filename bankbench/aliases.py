@@ -198,6 +198,8 @@ def save_learned(data: dict, path=MAPPINGS_PATH):
 def merged_aliases(learned: dict | None = None) -> dict:
     out = {sec: {k: [clean_label(x) for x in v] for k, v in d.items()} for sec, d in SEED_ALIASES.items()}
     for sec, d in (learned or {}).items():
+        if sec.startswith("_"):  # '_recipes' = memori resep, bukan alias
+            continue
         for k, v in d.items():
             bucket = out.setdefault(sec, {}).setdefault(k, [])
             for x in v:
