@@ -385,14 +385,158 @@ def _split_columns(page, x0, x1, depth=0):
     return [text]
 
 
+def _layout_blocks(page):
+    """Susun ulang teks halaman per KOLOM TABEL berdasarkan posisi kata.
+
+    1. kata -> 'segmen' (kata-kata berdempetan di baseline yang sama = satu frasa:
+       label atau angka)
+    2. awal kolom = posisi x label yang di kanannya ada angka (dikelompokkan)
+    3. tiap segmen masuk ke kolom terdekat di kirinya; di dalam kolom, segmen
+       disusun jadi baris dengan toleransi tinggi yang ketat (baris dari kolom lain
+       yang bergeser 1-2 pt tidak ikut tergabung).
+    Return list teks per kolom (atau None kalau tidak cocok dipakai)."""
+    try:
+        words = page.extract_words(x_tolerance=1.5, y_tolerance=1)
+    except Exception:
+        return None
+    if len(words) < 30:
+        return None
+    words.sort(key=lambda w: (round(w["top"], 1), w["x0"]))
+    segs = []  # dict(x0, x1, top, text)
+    for w in words:
+        last = segs[-1] if segs else None
+        gap_limit = max(4.0, 1.4 * (w["bottom"] - w["top"]))
+        if last and abs(w["top"] - last["top"]) < 0.8 and 0 <= w["x0"] - last["x1"] < gap_limit:
+            last["text"] += " " + w["text"]
+            last["x1"] = w["x1"]
+        else:
+            segs.append({"x0": w["x0"], "x1": w["x1"], "top": w["top"], "text": w["text"]})
+
+    def is_num(seg):
+        toks = seg["text"].split()
+        return all(is_number_token(t) for t in toks) and any(re.search(r"\d", t) for t in toks)
+
+    by_line = {}
+    for sg in segs:
+        by_line.setdefault(round(sg["top"] * 2) / 2, []).append(sg)
+
+    def same_line(sg):
+        key = round(sg["top"] * 2) / 2
+        out = []
+        for k in (key - 0.5, key, key + 0.5):
+            out.extend(o for o in by_line.get(k, []) if abs(o["top"] - sg["top"]) < 0.8)
+        return out
+
+    starts = []  # (x0, top, x angka pertama) label yang langsung diikuti angka
+    for sg in segs:
+        if is_num(sg) or not re.search(r"[A-Za-z]{2,}", sg["text"]):
+            continue
+        right = sorted((o for o in same_line(sg) if o["x0"] > sg["x1"] - 1), key=lambda o: o["x0"])
+        if right and is_num(right[0]):
+            starts.append((sg["x0"], sg["top"], right[0]["x0"]))
+        elif re.search(r"\d[\d.,]*\)?\s*$", sg["text"]):
+            starts.append((sg["x0"], sg["top"], sg["x1"]))
+    if len(starts) < 5:
+        return None
+    starts.sort()
+    groups = []
+    for x, top, nx in starts:
+        g = groups[-1] if groups else None
+        if g and x - g["xs"][-1] <= 3:
+            g["xs"].append(x)
+            g["tops"].append(top)
+            g["nxs"].append(nx)
+        else:
+            groups.append({"xs": [x], "tops": [top], "nxs": [nx]})
+    groups = [{"x": min(g["xs"]), "ymin": min(g["tops"]), "ymax": max(g["tops"]), "n": len(g["xs"]),
+               "numx": sorted(g["nxs"])[len(g["nxs"]) // 2]} for g in groups]
+    # label yang masih di KIRI angka suatu tabel = indentasi tabel itu (a., 1.2.1., dst)
+    merged = []
+    for g in sorted(groups, key=lambda g: g["x"]):
+        host = next((m for m in merged if m["x"] <= g["x"] < m["numx"] - 5
+                     and g["ymin"] <= m["ymax"] + 40 and g["ymax"] >= m["ymin"] - 40), None)
+        if host:
+            host["ymin"], host["ymax"] = min(host["ymin"], g["ymin"]), max(host["ymax"], g["ymax"])
+            host["n"] += g["n"]
+        else:
+            merged.append(dict(g))
+    cols_def = [g for g in merged if g["n"] >= 3]
+    if not cols_def:
+        return None
+
+    def col_of(sg):
+        # 1) kolom yang rentang vertikalnya benar-benar mencakup posisi ini
+        # 2) kalau tidak ada: longgarkan (judul/header tabel ada di atas baris pertama)
+        for lo, hi in ((2, 2), (80, 20)):
+            cands = [i for i, g in enumerate(cols_def)
+                     if g["x"] <= sg["x0"] + 15 and g["ymin"] - lo <= sg["top"] <= g["ymax"] + hi]
+            if cands:
+                return max(cands, key=lambda i: cols_def[i]["x"])
+        cands = [i for i, g in enumerate(cols_def) if g["x"] <= sg["x0"] + 15] or [0]
+        return max(cands, key=lambda i: cols_def[i]["x"])
+
+    order = sorted(range(len(cols_def)), key=lambda i: (cols_def[i]["x"], cols_def[i]["ymin"]))
+    cols = {i: [] for i in order}
+    label_col = {}
+    for sg in segs:
+        if not is_num(sg):
+            label_col[id(sg)] = col_of(sg)
+    for sg in segs:
+        if is_num(sg):
+            # angka ikut kolom LABA-nya: label terdekat di kiri pada baris yang sama
+            left = [o for o in same_line(sg) if not is_num(o) and o["x1"] <= sg["x0"] + 1
+                    and re.search(r"[A-Za-z]{2,}", o["text"])]
+            if left:
+                cols[label_col[id(max(left, key=lambda o: o["x1"]))]].append(sg)
+                continue
+            cols[col_of(sg)].append(sg)
+        else:
+            cols[label_col[id(sg)]].append(sg)
+    cols = [cols[i] for i in order]
+
+    blocks = []
+    for col in cols:
+        col.sort(key=lambda o: (o["top"], o["x0"]))
+        lines, cur, cur_top = [], [], None
+        for sg in col:
+            if cur and abs(sg["top"] - cur_top) >= 1.0:
+                lines.append(" ".join(o["text"] for o in sorted(cur, key=lambda o: o["x0"])))
+                cur = []
+            if not cur:
+                cur_top = sg["top"]
+            cur.append(sg)
+        if cur:
+            lines.append(" ".join(o["text"] for o in sorted(cur, key=lambda o: o["x0"])))
+        blocks.append("\n".join(lines))
+    return blocks
+
+
 def _page_blocks(page):
     """Laporan publikasi di koran/web sering multi-kolom (Neraca | Laba Rugi | ...).
     Kalau ada 'selokan' vertikal yang jelas, halaman dipecah per kolom supaya baris
     dari kolom yang berbeda tidak tercampur."""
     try:
-        return _split_columns(page, 0, page.width)
+        old = _split_columns(page, 0, page.width)
     except Exception:
-        return [page.extract_text() or ""]
+        old = [page.extract_text() or ""]
+    new = _layout_blocks(page)
+    if new is None:
+        return old
+    # pilih susunan yang menghasilkan lebih banyak baris lengkap:
+    # label + angka + header kolom (periode/entitas) yang jumlahnya pas
+    return new if _blocks_quality(new) > _blocks_quality(old) else old
+
+
+def _blocks_quality(blocks) -> float:
+    b = _RowBuilder()
+    for text in blocks:
+        _feed_text(b, text)
+    score = 0.0
+    for r in b.rows:
+        if not r.values:
+            continue
+        score += 1.0 if (r.cols and len(r.cols) >= len(r.values) and any(p for p, _ in r.cols)) else 0.4
+    return score
 
 
 # ---------------------------------------------------------------------------------
