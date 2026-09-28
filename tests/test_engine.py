@@ -151,6 +151,108 @@ def test_writer_new_column_extends_formulas():
     assert ws["I8"].comment.text == "cek"
 
 
+# ---------------------------------------------------------------- mode strict
+def _strict_workbook():
+    """Kolom: F=Dec 24 (acuan Neraca & YoY), G=Sep 25, H=Dec 25 (tujuan, kosong)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "BANKS"
+    ws["B2"] = "NERACA - Consol"
+    for c, lbl in zip("FGH", ["Dec 24", "Sep 25", "Dec 25"]):
+        ws[f"{c}6"] = lbl
+    bs = [(8, "1", "K a s", 95_000, 99_000), (9, "2", "Kredit", None, None),
+          (10, "a", "Pinjaman yang diberikan dan piutang", 450_000, 500_000),
+          # konvensi analis: Aset lainnya = Aset lainnya + Aset keuangan lainnya
+          (11, "3", "Aset lainnya", 55_000, 57_000), (12, "4", "Aset baru", None, None)]
+    for r, enum, lbl, v1, v2 in bs:
+        ws[f"B{r}" if enum.isdigit() else f"D{r}"] = enum
+        ws[f"D{r}" if enum.isdigit() else f"E{r}"] = lbl
+        ws[f"F{r}"], ws[f"G{r}"] = v1, v2
+    ws["E13"] = "TOTAL ASET"
+    for c in "FGH":
+        ws[f"{c}13"] = f"=SUM({c}8:{c}12)"
+    ws["B20"] = "PERHITUNGAN LABA RUGI - Consol"
+    ws["B22"], ws["C22"], ws["F22"], ws["G22"] = 1, "Pendapatan Bunga", 11_000, 8_000
+    ws["B23"], ws["C23"], ws["F23"], ws["G23"] = 2, "Beban Bunga", 3_000, 2_200
+    ws["B30"] = "KOMITMEN DAN KONTIGENSI - Consol"
+    ws["B40"] = "CAPITAL ADEQUACY RATIO - Consol"
+    ws["C42"], ws["F42"], ws["G42"] = "Aset Tertimbang Menurut Risiko (ATMR) untuk Risiko Kredit", 410_000, 415_000
+    ws["C43"], ws["F43"], ws["G43"] = "Rasio Kewajiban Penyediaan Modal Minimum", "=F42/2", "=G42/2"
+    ws["E60"], ws["F60"], ws["G60"] = "NPL Gross (%)", 1.5, 1.45
+    ws["E70"] = "Loan Breakdown (IDR bio) - By Collectibility"
+    ws["E71"], ws["F71"], ws["G71"] = "Current", "=(1000+2000)/1000", "=(1050+2100)/1000"
+    return wb
+
+
+STRICT_REPORT = """PT BANK S Tbk
+LAPORAN POSISI KEUANGAN
+INDIVIDUAL KONSOLIDASIAN
+31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024
+1. Kas 90.000 80.000 120.000 95.000
+2. Kredit yang diberikan 480.000 400.000 530.000 450.000
+3. Aset lainnya 50.000 40.000 56.000 52.000
+4. Aset keuangan lainnya 2.000 1.000 4.000 3.000
+5. Aset baru 7.000 - 7.000 -
+TOTAL ASET 629.000 521.000 717.000 600.000
+LAPORAN LABA RUGI
+INDIVIDUAL KONSOLIDASIAN
+31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024
+1. Pendapatan Bunga 10.000 9.000 12.000 11.000
+2. Beban Bunga (3.000) (2.500) (3.100) (3.000)
+LAPORAN PERHITUNGAN KEWAJIBAN PENYEDIAAN MODAL MINIMUM
+31 Des 2025 31 Des 2024
+Individual Konsolidasian Individual Konsolidasian
+ATMR RISIKO KREDIT 390.000 420.000 380.000 410.000
+RASIO KEUANGAN
+31 Des 2025 31 Des 2024
+NPL gross 1,40 1,50
+LAPORAN KUALITAS ASET PRODUKTIF
+INDIVIDUAL
+31 Des 2025 31 Des 2024
+L DPK KL D M JUMLAH L DPK KL D M JUMLAH
+1. Kredit yang diberikan
+a. Rupiah 1.100 5 - - - 1.105 1.000 4 - - - 1.004
+b. Valuta asing 2.200 - - - - 2.200 2.000 - - - - 2.000
+"""
+
+
+def test_strict_follows_reference_pattern():
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    m = build_sheet_model("BANKS", grid_from_worksheet(wb["BANKS"]))
+    assert [r.label for r in m.extra_rows] == ["NPL Gross (%)", "Current"]
+    mt = StrictMatcher(m, _source_rows(STRICT_REPORT), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[8].value == 120_000 and res[8].method == "Pola angka"   # Konsolidasian Des 2025
+    assert res[10].value == 530_000
+    assert res[11].value == 60_000 and res[11].method == "Pola penjumlahan"  # 56.000 + 4.000
+    assert res[11].formula == "=56000+4000"
+    assert res[12].value is None and "kosong di periode acuan" in res[12].note  # akun baru -> tidak ditebak
+    assert res[9].value is None
+    assert res[22].value == 12_000
+    assert res[23].value == 3_100      # pola acuan: beban disimpan positif
+    assert res[42].value == 420_000    # KPMM: kolom Konsolidasian 2025 (urutan kolom beda)
+    assert res[60].value == 1.4        # rasio: pola YoY
+    assert res[71].formula == "=(1100+2200)/1000"  # NPL: komponen dilacak ke tabel kualitas aset
+
+
+def test_chained_periods_use_previous_result_as_reference():
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    m = build_sheet_model("BANKS", grid_from_worksheet(wb["BANKS"]))
+    m2 = m.with_column(8, "Dec 25", {8: 120_000.0, 10: 530_000.0, 11: 60_000.0})
+    assert m2.find_period_col(12, 2025) == 8
+    report = STRICT_REPORT.replace("31 Des 2025", "30 Jun 2026").replace("31 Des 2024", "31 Des 2025")
+    report = report.replace("120.000 95.000", "130.000 120.000")
+    tc, exists = m2.target_col_for(6, 2026)
+    assert (tc, exists) == (9, False)
+    mt = StrictMatcher(m2, _source_rows(report), tc, merged_aliases({}), (6, 2026))
+    res = {r.row: r for r in mt.run()}
+    assert res[8].value == 130_000  # pola Kas diambil dari hasil Dec 25 sebelumnya
+
+
 # ---------------------------------------------------------------- end-to-end (template asli)
 @pytest.mark.slow
 @pytest.mark.skipif(not os.path.exists(TEMPLATE), reason="template.xlsx tidak ada")
@@ -174,3 +276,22 @@ def test_end_to_end_real_template(tmp_path, fmt):
     checks = reconcile(mt, {r: x.value for r, x in res.items() if x.value is not None})
     balance = [c for c in checks if c["Total (template)"].startswith("Aset =")]
     assert balance and balance[0]["Status"] == "OK"
+
+
+def test_recipe_memory_keeps_zero_valued_component():
+    """Resep Dec 25: Aset lainnya = Aset lainnya + Aset keuangan lainnya. Di Dec 25 aset
+    keuangan lainnya = 0, jadi tanpa memori resep akun itu 'hilang' di periode berikutnya."""
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    m = build_sheet_model("BANKS", grid_from_worksheet(wb["BANKS"]))
+    m2 = m.with_column(8, "Dec 25", {11: 56_000.0}, hints={11: ["Aset lainnya", "Aset keuangan lainnya"]})
+    report = """LAPORAN POSISI KEUANGAN
+INDIVIDUAL KONSOLIDASIAN
+30 Jun 2026 31 Des 2025 30 Jun 2026 31 Des 2025
+3. Aset lainnya 50.000 40.000 58.000 56.000
+4. Aset keuangan lainnya 2.000 - 5.000 -
+"""
+    mt = StrictMatcher(m2, _source_rows(report), 9, merged_aliases({}), (6, 2026))
+    res = {r.row: r for r in mt.run()}
+    assert res[11].value == 63_000 and "resep sama" in res[11].note

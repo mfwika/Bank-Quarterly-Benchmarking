@@ -22,6 +22,8 @@ SECTION_NAMES = {
     "BS": "Neraca / Balance Sheet",
     "IS": "Laba Rugi / Income Statement",
     "CAP": "Struktur Modal / KPMM",
+    "RATIO": "Rasio (LDR, BOPO, ROA, NPL %, ...)",
+    "NPL": "NPL / Kolektibilitas",
 }
 
 MAX_COLS = 150
@@ -33,6 +35,10 @@ _HEAD_IS = re.compile(r"LABA\s*RUGI|LABA/RUGI|INCOME STATEMENT|PROFIT AND LOSS")
 _HEAD_COMMIT = re.compile(r"KOMITMEN|KONTI[NJ]")
 _HEAD_CAP = re.compile(r"CAPITAL ADEQUACY|PENYEDIAAN MODAL MINIMUM|KPMM")
 _CAP_LAST_ROW = re.compile(r"rasio kewajiban penyediaan modal|rasio kpmm", re.I)
+
+_RATIO_ROW = re.compile(
+    r"^(LDR|BOPO|ROA|ROE|NIM|NPL Gross|NPL Net)\b.*\(%\)|^GWM\b|^Posisi Devisa Neto", re.I)
+_NPL_ROW = re.compile(r"^(Current|Special Mention|NPL)\b", re.I)
 
 _SKIP_LABELS = {"no", "pos-pos", "pos - pos", "in million rp", "in million rp / percentage (%)"}
 
@@ -92,6 +98,9 @@ class SheetModel:
     rows: list  # list[TemplateRow] (hanya baris di dalam seksi)
     max_row: int
     special_rows: dict = field(default_factory=dict)  # 'annualizer'/'period_date' -> row
+    section_titles: dict = field(default_factory=dict)  # 'BS' -> 'NERACA - Consol'
+    extra_rows: list = field(default_factory=list)  # baris rasio & NPL (di luar seksi utama)
+    recipe_hints: dict = field(default_factory=dict)  # row -> [label akun laporan] (memori resep)
 
     # -- periode ------------------------------------------------------------------
     def parsed_periods(self):
@@ -136,6 +145,26 @@ class SheetModel:
             return cols[-1]
         before = [c for c in sorted(self.period_cols) if c < target_col]
         return before[-1] if before else min(self.period_cols)
+
+    def with_column(self, col, label, values, hints=None):
+        """Salinan model dengan kolom `col` (periode `label`) berisi `values`
+        (row -> angka / rumus). Dipakai supaya hasil laporan periode sebelumnya
+        (mis. Dec 25) langsung jadi acuan pola laporan berikutnya (mis. Jun 26)."""
+        import copy
+
+        from .matcher import translate_formula
+
+        src = self.reference_col(col)
+        m = copy.deepcopy(self)
+        m.period_cols[col] = label
+        if hints:
+            m.recipe_hints = {**(getattr(m, "recipe_hints", None) or {}), **hints}
+        for r in m.rows + m.extra_rows:
+            if r.row in values and values[r.row] is not None:
+                r.cells[col] = values[r.row]
+            elif col not in r.cells and is_ref_formula(r.cells.get(src)):
+                r.cells[col] = translate_formula(r.cells[src], src, col, r.row)
+        return m
 
     def latest_period(self):
         """Periode terakhir yang sudah ada datanya (month, year)."""
@@ -226,7 +255,7 @@ def build_sheet_model(name, grid):
     first_pc = min(period_cols)
 
     # ---- deteksi seksi --------------------------------------------------------
-    heads = {}
+    heads, titles = {}, {}
     for r in range(1, len(grid) + 1):
         for c in range(1, first_pc):
             v = _cell(grid, r, c)
@@ -236,6 +265,7 @@ def build_sheet_model(name, grid):
             for key, pat in (("CAP", _HEAD_CAP), ("COMMIT", _HEAD_COMMIT), ("IS", _HEAD_IS), ("BS", _HEAD_BS)):
                 if key not in heads and pat.search(u):
                     heads[key] = r
+                    titles[key] = v.strip()
                     break
     if "BS" not in heads:
         return None
@@ -311,6 +341,33 @@ def build_sheet_model(name, grid):
             if sum(1 for v in vals if hasattr(v, "year") and hasattr(v, "month")) >= 2:
                 special["period_date"] = r
 
+    # ---- baris rasio & NPL (di luar seksi utama) ---------------------------------
+    extra = []
+    npl_zone = None
+    for r in range(cap_end + 1, len(grid) + 1):
+        label, _, _ = _row_texts(grid, r, first_pc)
+        if not label:
+            continue
+        kind = None
+        if _RATIO_ROW.search(label):
+            kind = "RATIO"
+        elif re.search(r"by collectibility", label, re.I):
+            npl_zone = r
+            continue
+        elif npl_zone and r - npl_zone <= 4 and _NPL_ROW.match(label):
+            kind = "NPL"
+        if kind:
+            cells = {c: _cell(grid, r, c) for c in range(first_pc, MAX_COLS + 1)}
+            cells = {c: v for c, v in cells.items() if v is not None}
+            extra.append(TemplateRow(row=r, label=label, section=kind, level=1, cells=cells))
+
+    # hanya blok rasio publikasi (sebelum tabel kolektibilitas); blok rasio di bawahnya
+    # bersumber dari analyst meeting, bukan laporan publikasi
+    first_npl = next((r.row for r in extra if r.section == "NPL"), None)
+    if first_npl:
+        extra = [r for r in extra if r.section == "NPL" or r.row < first_npl]
+    extra = [r for r in extra if not re.search(r"by currency|analyst", r.label, re.I)]
+
     return SheetModel(
         name=name,
         bank_name=_detect_bank_name(grid, name, first_pc),
@@ -320,6 +377,8 @@ def build_sheet_model(name, grid):
         rows=rows,
         max_row=len(grid),
         special_rows=special,
+        section_titles=titles,
+        extra_rows=extra,
     )
 
 

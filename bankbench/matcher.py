@@ -46,6 +46,7 @@ class MatchResult:
     score: float = 0.0
     method: str = "-"
     note: str = ""
+    formula: str | None = None  # kalau diisi rumus (mis. NPL = (a+b+c)/1000)
 
 
 @dataclass

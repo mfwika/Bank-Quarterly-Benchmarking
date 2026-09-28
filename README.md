@@ -1,27 +1,43 @@
 # Bank-Quarterly-Benchmarking
 
 Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
-**laporan keuangan publikasi** (PDF / Excel). User cukup upload file, sistem yang:
+**laporan keuangan publikasi** (PDF / Excel). User cukup upload file (boleh beberapa bank
+& beberapa periode sekaligus), sistem yang:
 
-1. **Mengenali bank** → sheet tujuan (dari nama bank + angka yang cocok dengan histori sheet).
-2. **Mengenali periode** (mis. "30 September 2025" → kolom `Sep 25`).
-3. **Membaca hanya 3 seksi**: Neraca (Balance Sheet), Laba Rugi (Income Statement),
-   Struktur Modal (KPMM / Capital Adequacy). Komitmen & kontinjensi, kualitas aset, dll diabaikan.
-4. **Mengidentifikasi akun** ke baris template:
-   - *Pola angka*: angka pembanding di laporan (Des tahun lalu / kuartal yang sama tahun lalu)
-     dicocokkan dengan histori template. Dari sini sistem tahu akunnya, kolom mana yang
-     konsolidasian periode berjalan, skala (juta/miliar), dan konvensi tanda (+/-).
-   - *Alias*: kamus padanan nama akun format OJK baru ↔ label template (`bankbench/aliases.py`
-     + `mappings.json` hasil belajar dari koreksi user).
-   - *Nama akun*: fuzzy matching + induk akun + urutan (untuk label kembar seperti "Lainnya").
-5. **Validasi**: total di template (TOTAL ASET, LABA OPERASIONAL, Modal Inti, dst.) dihitung ulang
-   dari angka baru dan dibandingkan dengan total di laporan, plus cek Aset = Liabilitas + Ekuitas.
-6. **Menulis**: kolom periode diisi (kalau sudah ada, mis. `Dec 25` kosong) atau **ditambah**
-   setelah kolom terakhir. Format & semua formula (termasuk rasio di bawahnya, ANNUALIZER,
-   tanggal periode) ikut diperpanjang. Baris formula tidak ditimpa.
+1. **Mengenali bank** → sheet tujuan (nama bank + angka yang cocok dengan histori sheet).
+2. **Mengenali periode** tiap file (mis. "30 Juni 2026" → kolom `Jun 26`).
+3. **Membaca** Neraca, Laba Rugi, KPMM (struktur modal), tabel Rasio Keuangan, dan tabel
+   Kualitas Aset Produktif (kolektibilitas L/DPK/KL/D/M) — lengkap dengan header kolomnya
+   (periode + Individual/Konsolidasian).
+4. **Mengisi dengan mode STRICT — meniru pola periode acuan**:
 
-Baris yang di histori template **biasanya kosong** (mis. induk "Kredit" yang angkanya ditaruh
-di sub-baris) tidak diisi otomatis supaya total tidak dobel.
+   | Baris template | Periode acuan pola |
+   |---|---|
+   | Neraca | **Desember tahun lalu** (minta Jun 26 → lihat Dec 25) |
+   | Laba Rugi, KPMM, Rasio, NPL | **periode yang sama tahun lalu** (minta Jun 26 → lihat Jun 25) |
+
+   - Nilai template di periode acuan dicari di angka **pembanding** laporan: satu akun, atau
+     **jumlah 2–4 akun** (mis. "Aset lainnya" = Aset lainnya + Aset keuangan lainnya).
+   - Resep yang sama diterapkan ke angka periode berjalan. Hasil penjumlahan ditulis sebagai
+     rumus (`=a+b`) seperti gaya analis, supaya rinciannya kelihatan.
+   - **Tidak ada pola → dikosongkan & ditandai ⚠** (tidak ditebak). Saran nama akun hanya info.
+   - Baris yang kosong di periode acuan tidak diisi; kalau laporan punya akun bernama sama
+     dengan angka ≠ 0, muncul peringatan "akun baru?".
+   - Entitas: Neraca/Laba Rugi/KPMM → **Konsolidasian** (kecuali judul seksi template "Bank");
+     Rasio & NPL → ikut kolom yang cocok di periode acuan (biasanya Bank only).
+   - **NPL** (Current / Special Mention / NPL): tiap komponen rumus acuan, mis.
+     `=(129452+10588078+…)/1000`, dilacak ke sel tabel kualitas aset (baris + kolektibilitas),
+     lalu ditulis rumus baru dengan susunan & pembagi yang sama.
+   - Kalau di periode acuan sel berupa **rumus** (mis. LDR `=((I24+I25+I43)/…)*100`), rumus itu
+     yang digeser ke kolom tujuan.
+5. **Berantai & belajar**: file bank yang sama diproses dari periode lama ke baru (hasil Dec 25
+   langsung jadi acuan Jun 26). Resep penjumlahan disimpan sebagai **memori pola**
+   (`mappings.json` → `_recipes`), jadi akun yang sempat bernilai 0 di periode acuan tetap ikut.
+6. **Validasi**: total template (TOTAL ASET, LABA OPERASIONAL, Modal Inti, …) dihitung ulang
+   dan dibandingkan dengan laporan + cek Aset = Liabilitas + Ekuitas; selisih yang persis sama
+   dengan satu akun laporan diberi keterangan (akun baru / beda klasifikasi).
+7. **Menulis**: kolom periode diisi atau **ditambah**; format & semua formula (rasio turunan,
+   ANNUALIZER, tanggal periode) ikut diperpanjang.
 
 ## Menjalankan
 
@@ -30,46 +46,43 @@ pip install -r requirements.txt
 streamlit run main.py
 ```
 
-Template: taruh file Excel dengan nama `template.xlsx` di root repo.
+Template: taruh file Excel dengan nama `template.xlsx` di root repo. PDF berupa gambar dibaca
+dengan OCR (Tesseract; `packages.txt` untuk Streamlit Cloud).
 
 ## Struktur kode
 
 | File | Isi |
 |---|---|
-| `main.py` | UI Streamlit |
-| `bankbench/template_model.py` | Membaca struktur sheet bank (seksi, baris akun, hirarki, histori) |
-| `bankbench/source_parser.py` | Parser laporan PDF (termasuk layout 2 kolom) & Excel |
-| `bankbench/matcher.py` | Identifikasi akun, deteksi kolom/skala/tanda, rekonsiliasi total |
+| `main.py` | UI Streamlit (per file: bank, periode, review, cek total; generate) |
+| `bankbench/pattern.py` | **Mode strict**: periode acuan, resep (1–4 akun), rasio, NPL, memori resep |
+| `bankbench/template_model.py` | Struktur sheet bank (seksi, hirarki akun, histori, baris rasio & NPL) |
+| `bankbench/source_parser.py` | Parser PDF (layout koran multi-kolom, header kolom, OCR) & Excel |
+| `bankbench/matcher.py` | Utilitas pencocokan nama/alias, evaluasi formula & rekonsiliasi total |
 | `bankbench/writer.py` | Menulis / menambah kolom periode ke workbook |
-| `bankbench/aliases.py` | Kamus padanan nama akun + pemetaan hasil belajar |
+| `bankbench/aliases.py` | Kamus padanan nama akun (ID/EN) + pemetaan hasil belajar |
 | `bankbench/banks.py` | Deteksi bank dari laporan |
 
 ## Test
 
 ```bash
-python -m pytest -q            # termasuk end-to-end dengan template asli (~30 detik)
+python -m pytest -q            # termasuk end-to-end dengan template asli (~40 detik)
 python -m pytest -q -m "not slow"
 ```
 
-Test end-to-end membuat laporan publikasi sintetis (format OJK, 4 kolom Bank/Konsolidasian)
-dari angka yang ada di template, lalu memastikan sistem bisa merekonstruksi kolom tersebut.
+## Diuji dengan laporan asli
 
-## Yang sudah diuji dengan laporan asli (Des 2025)
-
-| Laporan | Format | Hasil |
+| Laporan | Format | Catatan |
 |---|---|---|
-| BCA (13 hal.) | PDF teks, spasi "hantu" di dalam angka | Neraca seimbang, semua total Laba Rugi & KPMM cocok |
-| Mandiri | 1 halaman koran, 3 kolom | Total cocok kecuali akun baru (PSAK 117, aset dikuasai untuk dijual) |
-| SMBC Indonesia | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; Total Aset cocok, perlu review |
-
-Fitur yang lahir dari uji tersebut: pembacaan header tabel (periode + Individual/Konsolidasian
-per kolom), pemisahan layout multi-kolom, OCR, kamus istilah Inggris, dan **pola penjumlahan**
-(mis. template "Aset lainnya" = Aset lainnya + Aset keuangan lainnya, terdeteksi dari histori).
+| BCA Des 2025 | PDF teks (spasi "hantu" di dalam angka) | Neraca seimbang; LR & KPMM cocok; NPL & rasio terisi |
+| Mandiri Q4 2025 | 1 halaman koran, 3 kolom | Angka 2024 di-restate Mandiri → Pendapatan/Beban bunga & Special Mention dikosongkan (sesuai aturan strict) |
+| Mandiri Q2 2026 | 1 halaman koran, 2 "lantai" dengan kolom berbeda, baris miring | Terbaca penuh; Neraca Jun 26 memakai hasil Dec 25 sebagai acuan |
+| SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
 
 ## Catatan
 
-- PDF berupa gambar dibaca dengan OCR (Tesseract, `packages.txt` untuk Streamlit Cloud). Hasil OCR
-  tetap perlu dicek.
+- Kalau periode acuan belum terisi di template (mis. Dec 25 kosong saat mengisi Jun 26), upload
+  juga laporan periode acuannya — akan diproses lebih dulu.
 - openpyxl tidak menyimpan ulang chart/gambar di workbook; kalau template punya chart,
   salin sheet hasil update ke file aslimu.
-- Pemetaan hasil koreksi bisa di-download sebagai `mappings.json`; commit ke repo supaya permanen.
+- `mappings.json` (pasangan manual + memori resep) bisa di-download dari app; commit ke repo
+  supaya permanen.
