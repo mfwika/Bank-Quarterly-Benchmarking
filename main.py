@@ -59,8 +59,13 @@ ALL_SECTIONS = ["BS", "IS", "CAP", "RATIO", "NPL"]
 # ---------------------------------------------------------------------------------
 # cache
 # ---------------------------------------------------------------------------------
+# Naikkan angka ini setiap struktur data parser/model berubah -> cache lama otomatis dibuang
+# (Streamlit Cloud tidak selalu restart penuh setelah update kode).
+CACHE_VERSION = 3
+
+
 @st.cache_data(show_spinner=False)
-def get_models(path, mtime):
+def get_models(path, mtime, version=CACHE_VERSION):
     return load_bank_models(path)
 
 
@@ -71,12 +76,12 @@ def get_template_bytes(path, mtime):
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
-def parse_cached(name, data):
+def parse_cached(name, data, version=CACHE_VERSION):
     return parse_source(name, data)
 
 
 @st.cache_data(show_spinner=False, max_entries=60)
-def detect_bank_cached(fk, _text, _rows, _models, _aliases):
+def detect_bank_cached(fk, _text, _rows, _models, _aliases, version=CACHE_VERSION):
     return detect_bank(_text, _rows, _models, _aliases)
 
 
@@ -97,7 +102,7 @@ def plabel(p):
 
 
 with st.spinner("Membaca struktur template (sekali saja, lalu di-cache)..."):
-    models = get_models(TEMPLATE_PATH, TEMPLATE_MTIME)
+    models = get_models(TEMPLATE_PATH, TEMPLATE_MTIME, CACHE_VERSION)
 if not models:
     st.error("Tidak ada sheet bank (berisi NERACA / LABA RUGI / CAPITAL ADEQUACY) yang terdeteksi di template.")
     st.stop()
@@ -141,7 +146,7 @@ parsed = {}
 for f in uploads:
     with st.spinner(f"Membaca '{f.name}'... (PDF berupa gambar dibaca pakai OCR, bisa ±1 menit)"):
         try:
-            rows, text = parse_cached(f.name, f.getvalue())
+            rows, text = parse_cached(f.name, f.getvalue(), CACHE_VERSION)
         except Exception as e:  # file rusak / terenkripsi / bukan PDF teks
             st.error(f"Gagal membaca '{f.name}': {e}")
             continue
@@ -270,7 +275,7 @@ for fk in order:
         st.session_state.pop(f"editor_{fk}", None)
     st.session_state[matcher_key] = {
         "matcher": matcher, "src_by_option": src_by_option,
-        "rows_by_num": {r.row: r for r in base.rows + base.extra_rows},
+        "rows_by_num": {r.row: r for r in base.rows + (getattr(base, "extra_rows", None) or [])},
     }
     df = st.session_state[state_key]
     values = final_values(df)
