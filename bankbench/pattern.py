@@ -328,10 +328,10 @@ class StrictMatcher(Matcher):
         ref_label = self.model.period_cols.get(ref_col, f"{ref_per[0]:02d}/{ref_per[1]}")
         out = []
         used = set()
-        ratio_pool = [s for s in self.source_all if s.values and not s.cats
+        ratio_pool = [s for s in self.source_all if s.values and not getattr(s, "cats", None)
                       and all(abs(v) < 1000 for v in s.values) and s.section in ("OTHER", "CAP", "?")]
-        aq_rows = [s for s in self.source_all if s.cats and s.cols]
-        for tr in self.model.extra_rows:
+        aq_rows = [s for s in self.source_all if getattr(s, "cats", None) and s.cols]
+        for tr in getattr(self.model, "extra_rows", None) or []:
             prev = self.last_value(tr)
             ref_cell = tr.cells.get(ref_col) if ref_col else None
             if is_ref_formula(tr.cells.get(self.target_col)):
@@ -446,14 +446,14 @@ class StrictMatcher(Matcher):
                 taken.add((opts[0][0].idx, opts[0][1]))
         # komponen ambigu (mis. angka sama di baris induk & anaknya): pilih kedalaman
         # baris yang sama dengan komponen yang sudah pasti
-        depths = [len(ch[0].ancestors or []) for ch in chosen if ch]
+        depths = [len(getattr(ch[0], "ancestors", None) or []) for ch in chosen if ch]
         pref = max(set(depths), key=depths.count) if depths else None
         for k, opts in enumerate(options):
             if opts is None or chosen[k]:
                 continue
             free = [o for o in opts if (o[0].idx, o[1]) not in taken]
             if pref is not None and len(free) > 1:
-                same = [o for o in free if len(o[0].ancestors or []) == pref]
+                same = [o for o in free if len(getattr(o[0], "ancestors", None) or []) == pref]
                 free = same or free
             if len(free) > 1 and len({cur_of(*o) for o in free}) == 1:
                 free = free[:1]  # semua kandidat memberi angka periode berjalan yang sama
@@ -508,12 +508,12 @@ def _ratio_keywords(label: str):
 def _kw_score(pat, sr) -> int:
     if not pat:
         return 0
-    txt = " ".join([sr.label] + list(sr.ancestors or []) + [sr.parent or ""])
+    txt = " ".join([sr.label] + list(getattr(sr, "ancestors", None) or []) + [sr.parent or ""])
     return 1 if re.search(pat, txt, re.I) else 0
 
 
 def _in_kredit(sr) -> bool:
-    txt = " ".join([sr.label] + list(sr.ancestors or []) + [sr.parent or ""])
+    txt = " ".join([sr.label] + list(getattr(sr, "ancestors", None) or []) + [sr.parent or ""])
     return bool(re.search(r"kredit|loan|pembiayaan", txt, re.I))
 
 
