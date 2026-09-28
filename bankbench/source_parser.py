@@ -58,6 +58,8 @@ def _heading_section(text: str):
     if not titled and sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
         return None
     u = text.upper()
+    if re.search(r"\bUUS\b|UNIT USAHA SYARIAH", u):
+        return "OTHER"  # laporan Unit Usaha Syariah: bukan laporan bank secara keseluruhan
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
             return key
@@ -354,20 +356,40 @@ def _count_numeric_lines(text: str) -> int:
 
 
 def _drop_ghost_spaces(page):
-    """Beberapa PDF (mis. BCA) menaruh karakter spasi yang MENUMPUK di posisi digit
-    pertama, sehingga '25.275.044' terbaca '2 5.275.044'. Spasi yang posisinya sama
-    dengan karakter lain dibuang dulu."""
+    """Beberapa PDF (mis. BCA, Permata) menaruh karakter spasi yang MENUMPUK di atas
+    digit, sehingga '25.275.044' terbaca '2 5.275.044'. Spasi yang titik tengahnya
+    jatuh di dalam karakter lain (baris yang sama) dibuang dulu."""
     try:
-        solid = {(round(c["top"]), round(c["x0"])) for c in page.chars if c["text"].strip()}
+        chars = page.chars
     except Exception:
         return page
+    solid = {}
+    for c in chars:
+        if c["text"].strip():
+            solid.setdefault(round(c["top"]), []).append((c["x0"], c["x1"]))
     if not solid:
         return page
+    for v in solid.values():
+        v.sort()
+
+    import bisect
+
+    def inside(obj):
+        mid = (obj["x0"] + obj["x1"]) / 2
+        for key in (round(obj["top"]) - 1, round(obj["top"]), round(obj["top"]) + 1):
+            spans = solid.get(key)
+            if not spans:
+                continue
+            i = bisect.bisect_right(spans, (mid, float("inf")))
+            for x0, x1 in spans[max(0, i - 2):i]:
+                if x0 - 0.05 <= mid <= x1 + 0.05:
+                    return True
+        return False
 
     def keep(obj):
         if obj.get("object_type") != "char" or obj.get("text") != " ":
             return True
-        return (round(obj["top"]), round(obj["x0"])) not in solid
+        return not inside(obj)
 
     return page.filter(keep)
 
