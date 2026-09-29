@@ -28,7 +28,7 @@ from openpyxl.utils import get_column_letter
 from bankbench.aliases import MAPPINGS_PATH, add_learned, load_learned, merged_aliases, save_learned
 from bankbench.banks import detect_bank, sheet_display
 from bankbench.matcher import reconcile
-from bankbench.pattern import StrictMatcher, reference_period
+from bankbench.pattern import FALLBACK_METHODS, StrictMatcher, reference_period
 from bankbench.periods import EN_ABBR, detect_report_period, format_period_label
 from bankbench.source_parser import ocr_available, parse_source
 from bankbench.template_model import SECTION_NAMES, load_bank_models
@@ -121,7 +121,10 @@ with st.sidebar:
         "1. Ambil nilai template di periode acuan.\n"
         "2. Cari akun laporan (atau jumlah 2–4 akun) yang angka *pembanding*-nya persis sama.\n"
         "3. Pakai resep yang sama untuk angka periode berjalan.\n"
-        "4. Tidak ada pola → **dikosongkan** & ditandai ⚠ (saran nama akun hanya info).\n\n"
+        "4. Pola tidak ada (mis. kolom Desember belum terisi, angka di-restate) → akun tetap **dikenali**: "
+        "memori pola bank ini → nama akun/kamus padanan (+ kebiasaan penjumlahan yang dipelajari) → "
+        "penyeimbang total Neraca. Hasilnya ditandai 🟡 **CEK**.\n"
+        "5. Akun yang biasanya kosong / tidak dikenali → dikosongkan & ditandai ⚠.\n\n"
         "**Entitas**: Neraca/Laba Rugi/KPMM → Konsolidasian (kecuali judul seksi template 'Bank only'). "
         "Rasio & NPL → ikut kolom yang cocok di periode acuan.\n\n"
         "**Beberapa periode sekaligus**: file bank yang sama diproses dari periode lama ke baru, "
@@ -259,8 +262,9 @@ for fk in order:
     label = base.period_cols.get(target_col) or format_period_label(
         c["month"], c["year"], like=base.period_cols[base.last_period_col()])
     memory = st.session_state.learned.get("_recipes", {}).get(c["sheet"], {})
+    conventions = st.session_state.learned.get("_conventions", {})
     matcher = StrictMatcher(base, rows, target_col, aliases, (c["month"], c["year"]),
-                            recipe_hints={int(k): v for k, v in memory.items()})
+                            recipe_hints={int(k): v for k, v in memory.items()}, conventions=conventions)
     results = matcher.run()
     source_rows = matcher.source_all
     option_of = {r.idx: f"#{r.idx} · {r.label[:70]} [{fmt_num(matcher.cur_value(r))}]" for r in source_rows
@@ -284,6 +288,10 @@ for fk in order:
     if learned_recipes:  # memori resep ikut disimpan di mappings.json (belajar antar-sesi)
         mem = st.session_state.learned.setdefault("_recipes", {}).setdefault(c["sheet"], {})
         mem.update({str(k): v for k, v in learned_recipes.items()})
+    for sec, conv in matcher.learned_conventions().items():  # kebiasaan penjumlahan lintas bank
+        dst = st.session_state.learned.setdefault("_conventions", {}).setdefault(sec, {})
+        for k, v in conv.items():
+            dst[k] = sorted(set(dst.get(k, [])) | set(v))
     chain_sig[c["sheet"]] = hashlib.md5(json.dumps(sorted(values.items()), default=str).encode()).hexdigest()[:8]
     jobs[fk] = dict(file=f.name, sheet=c["sheet"], model=base, target_col=target_col, exists=exists, label=label,
                     month=c["month"], year=c["year"], values=values, matcher=matcher, option_of=option_of)
@@ -334,9 +342,10 @@ for tab, fk in zip(tabs, order):
                    or model.fill_ratio(matcher.ref_cols[s]) <= 0.05]
         if missing:
             per = reference_period(missing[0], c["month"], c["year"])
-            st.warning(f"Periode acuan **{plabel(per)}** belum terisi di template sheet ini → baris seksi "
-                       f"{', '.join(missing)} tidak bisa diisi. Upload juga laporan periode {plabel(per)} "
-                       "(akan diproses lebih dulu), atau isi dulu kolom itu.")
+            st.info(f"Periode acuan **{plabel(per)}** belum terisi di template sheet ini → seksi "
+                    f"{', '.join(missing)} diisi dari **pengenalan nama akun + memori pola** (ditandai 🟡 CEK) dan "
+                    "dicek ke total laporan. Kalau mau strict penuh, upload juga laporan periode "
+                    f"{plabel(per)} (akan diproses lebih dulu).")
         if any(getattr(r, "ocr", False) for r in rows):
             st.warning("📷 Tabel di file ini berupa **gambar**, dibaca dengan OCR. Angka hasil OCR bisa salah baca "
                        "— cek tabel 'Cek total'.")
@@ -345,12 +354,14 @@ for tab, fk in zip(tabs, order):
         is_val = df["Tipe"] == "Nilai"
         filled = df["Nilai"].notna() | (df["Rumus"].astype(str).str.startswith("="))
         n_pola = int(df["Metode"].isin(["Pola angka", "Pola penjumlahan", "Rumus acuan"]).sum())
+        n_fb = int(df["Metode"].isin(FALLBACK_METHODS).sum())
         n_miss = int((is_val & ~filled).sum())
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Baris yang diisi di periode acuan", int(is_val.sum()))
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Baris yang perlu diisi", int(is_val.sum()))
         m2.metric("Terisi sesuai pola", n_pola)
-        m3.metric("⚠ Pola tidak ketemu (kosong)", n_miss)
-        m4.metric("Diisi manual", int((df["Metode"] == "Manual").sum()))
+        m3.metric("🟡 Dikenali dari nama/memori", n_fb)
+        m4.metric("⚠ Kosong", n_miss)
+        m5.metric("Diisi manual", int((df["Metode"] == "Manual").sum()))
 
         fc1, fc2 = st.columns([3, 2])
         with fc1:
@@ -364,7 +375,7 @@ for tab, fk in zip(tabs, order):
             shown = shown[(shown["Tipe"] == "Nilai") | shown["Nilai"].notna()]
         elif view.startswith("⚠"):
             f2 = shown["Nilai"].notna() | shown["Rumus"].astype(str).str.startswith("=")
-            shown = shown[(shown["Tipe"] == "Nilai") & (~f2 | shown["Catatan"].str.contains("⚠", na=False))]
+            shown = shown[(shown["Tipe"] == "Nilai") & (~f2 | shown["Catatan"].str.contains("⚠|CEK", na=False))]
 
         st.data_editor(
             shown,
@@ -384,7 +395,8 @@ for tab, fk in zip(tabs, order):
                 "Periode lalu": st.column_config.NumberColumn(format="%.2f"),
             },
         )
-        st.caption("Baris ⚠ = pola periode acuan tidak ketemu → dikosongkan. Kalau yakin, pilih **Akun di Laporan** "
+        st.caption("🟡 CEK = pola angka tidak ada, akun dikenali dari nama/memori — mohon dicek. "
+                   "⚠ = tidak dikenali → dikosongkan. Kalau yakin, pilih **Akun di Laporan** "
                    "atau ketik **Nilai** secara manual. Baris 'Formula' dihitung otomatis oleh Excel.")
 
         numeric = {int(r): float(v) for r, v in df["Nilai"].items()
@@ -406,7 +418,7 @@ for tab, fk in zip(tabs, order):
 # STEP 5: generate
 # ---------------------------------------------------------------------------------
 st.subheader("③ Generate template")
-annotate = st.checkbox("Beri comment di sel yang diisi manual / hasil penjumlahan (biar gampang dicek di Excel)",
+annotate = st.checkbox("Beri comment di sel yang diisi manual / hasil penjumlahan / 🟡 CEK (biar gampang dicek di Excel)",
                        value=True)
 if st.button(f"🚀 Update template — {len(jobs)} laporan", type="primary"):
     with st.spinner("Memuat template lengkap & menulis kolom... (±30–60 detik untuk file besar)"):
@@ -420,7 +432,7 @@ if st.button(f"🚀 Update template — {len(jobs)} laporan", type="primary"):
             notes = {}
             if annotate:
                 for r, row in df.iterrows():
-                    if int(r) in job["values"] and row["Metode"] in ("Manual", "Pola penjumlahan"):
+                    if int(r) in job["values"] and row["Metode"] in ("Manual", "Pola penjumlahan", *FALLBACK_METHODS):
                         notes[int(r)] = f"Auto-update ({row['Metode']}): {row['Catatan'] or row['Akun di Laporan']}"
             n = apply_to_workbook(wb, job["model"], job["target_col"], job["label"], job["month"], job["year"],
                                   job["values"], notes or None)

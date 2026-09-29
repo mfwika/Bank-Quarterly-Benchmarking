@@ -20,7 +20,15 @@ Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
      **jumlah 2–4 akun** (mis. "Aset lainnya" = Aset lainnya + Aset keuangan lainnya).
    - Resep yang sama diterapkan ke angka periode berjalan. Hasil penjumlahan ditulis sebagai
      rumus (`=a+b`) seperti gaya analis, supaya rinciannya kelihatan.
-   - **Tidak ada pola → dikosongkan & ditandai ⚠** (tidak ditebak). Saran nama akun hanya info.
+   - **Pola tidak tersedia → akun tetap dikenali** (ditandai 🟡 **CEK**), berlapis:
+     1. *Memori pola* — resep bank ini dari periode sebelumnya (`_recipes`).
+     2. *Nama akun* — nama/kamus padanan + posisi baris, dicek wajar vs periode lalu (0,1×–10×);
+        ditambah *kebiasaan penjumlahan* (mis. Aset lainnya + Aset keuangan lainnya) yang dipelajari
+        dari resep bank lain (`_conventions`); akun `-/-` ditulis negatif sesuai konvensi template.
+     3. *Penyeimbang* (hanya Neraca tanpa acuan) — kalau TOTAL ASET/LIABILITAS selisih persis satu
+        akun laporan yang belum terpakai, akun itu ditambahkan ke Aset/Liabilitas lainnya.
+     Ini berlaku saat kolom acuan kosong (mis. Dec 25 belum diisi) atau angka pembanding di-restate.
+     Yang tetap tidak dikenali → dikosongkan & ditandai ⚠.
    - Baris yang kosong di periode acuan tidak diisi; kalau laporan punya akun bernama sama
      dengan angka ≠ 0, muncul peringatan "akun baru?".
    - Entitas: Neraca/Laba Rugi/KPMM → **Konsolidasian** (kecuali judul seksi template "Bank");
@@ -74,14 +82,16 @@ python -m pytest -q -m "not slow"
 | Laporan | Format | Catatan |
 |---|---|---|
 | BCA Des 2025 | PDF teks (spasi "hantu" di dalam angka) | Neraca seimbang; LR & KPMM cocok; NPL & rasio terisi |
-| Mandiri Q4 2025 | 1 halaman koran, 3 kolom | Angka 2024 di-restate Mandiri → Pendapatan/Beban bunga & Special Mention dikosongkan (sesuai aturan strict) |
+| Mandiri Q4 2025 | 1 halaman koran, 3 kolom | Angka 2024 di-restate Mandiri → Pendapatan/Beban bunga diisi dari nama akun (🟡 CEK) |
 | Mandiri Q2 2026 | 1 halaman koran, 2 "lantai" dengan kolom berbeda, baris miring | Terbaca penuh; Neraca Jun 26 memakai hasil Dec 25 sebagai acuan |
+| Permata Jun 2026 | PDF teks | Kolom Dec 25 kosong → Neraca diisi dari nama akun, seimbang ke laporan; LR/KPMM/NPL/rasio ikut pola |
 | SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
 
 ## Catatan
 
-- Kalau periode acuan belum terisi di template (mis. Dec 25 kosong saat mengisi Jun 26), upload
-  juga laporan periode acuannya — akan diproses lebih dulu.
+- Kalau periode acuan belum terisi di template (mis. Dec 25 kosong saat mengisi Jun 26), Neraca
+  tetap diisi lewat pengenalan akun (🟡 CEK). Untuk strict penuh, upload juga laporan periode
+  acuannya — akan diproses lebih dulu.
 - openpyxl tidak menyimpan ulang chart/gambar di workbook; kalau template punya chart,
   salin sheet hasil update ke file aslimu.
 - `mappings.json` (pasangan manual + memori resep) bisa di-download dari app; commit ke repo
