@@ -40,11 +40,36 @@ class Recipe:
     notes: list = field(default_factory=list)
 
 
-class StrictMatcher(Matcher):
-    """Pencocokan ketat berbasis pola angka periode acuan."""
+# Kebiasaan analis yang terlihat di banyak bank (dipakai kalau pola angka tidak tersedia):
+# baris template -> akun laporan tambahan yang ikut dijumlahkan.
+SEED_CONVENTIONS = {
+    "BS": {
+        "aset lainnya": ["aset keuangan lainnya"],
+        "liabilitas lainnya": ["uang elektronik", "liabilitas kontrak asuransi"],
+        "tahun tahun lalu": ["dividen yang dibayarkan"],
+        "pinjaman yang diberikan dan piutang": ["piutang pembiayaan konsumen"],
+    },
+    "IS": {
+        "pendapatan lainnya": ["pendapatan asuransi"],
+        "beban lainnya": ["beban asuransi"],
+    },
+}
 
-    def __init__(self, model, source_rows, target_col, aliases, period, entity_by_section=None, recipe_hints=None):
+FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang")
+
+
+class StrictMatcher(Matcher):
+    """Pencocokan berbasis pola angka periode acuan, dengan cadangan pengenalan akun."""
+
+    def __init__(self, model, source_rows, target_col, aliases, period, entity_by_section=None, recipe_hints=None,
+                 fallback=True, conventions=None):
         super().__init__(model, source_rows, target_col, aliases, period=period)
+        self.fallback = fallback
+        self.conventions = {sec: dict(d) for sec, d in SEED_CONVENTIONS.items()}
+        for sec, d in (conventions or {}).items():
+            for k, v in d.items():
+                bucket = self.conventions.setdefault(sec, {}).setdefault(k, [])
+                bucket.extend(x for x in v if x not in bucket)
         self.source_all = list(source_rows)
         # row -> [label akun laporan] resep yang dipakai sebelumnya (memori pola)
         self.recipe_hints = dict(getattr(model, "recipe_hints", None) or {})
@@ -240,6 +265,197 @@ class StrictMatcher(Matcher):
         parts.sort(key=lambda p: -self._support(tr, p[0]))
         return Recipe(parts, "sum", h), None
 
+    # ------------------------------------------------------------ cadangan (tanpa pola angka)
+    def _ref_usable(self, section):
+        """Kolom acuan dianggap ada kalau cukup banyak akun seksi ini terisi di sana."""
+        col = self.ref_cols.get(section)
+        if col is None:
+            return False
+        cache = self.__dict__.setdefault("_ref_usable_cache", {})
+        if section not in cache:
+            rows = [tr for tr in self._value_rows if tr.section == section and tr.row not in self._formula_rows]
+            usual = [tr for tr in rows if self.usually_filled(tr)] or rows
+            filled = sum(1 for tr in usual if tr.numeric(col) is not None)
+            cache[section] = bool(usual) and filled >= max(1, 0.25 * len(usual))
+        return cache[section]
+
+    def _fallback(self, recipes, reasons, used):
+        """Baris yang tidak punya pola angka tetap dikenali akunnya:
+        1. memori pola (resep bank ini dari periode sebelumnya)
+        2. nama akun / kamus padanan (+ kebiasaan penjumlahan umum, + jumlah sub-akun)
+        3. penyeimbang total Neraca
+        Semua ditandai 'CEK'."""
+        out = {}
+        used = set(used)
+        todo = []
+        for tr in self._value_rows:
+            if tr.row in self._formula_rows or tr.row in recipes or tr.row in self._redirected_parents:
+                continue
+            col = self.ref_cols.get(tr.section)
+            ref_h = tr.numeric(col) if col else None
+            if self._ref_usable(tr.section):
+                if ref_h is None:
+                    continue  # kosong di periode acuan -> memang tidak diisi (konvensi analis)
+            elif not self.usually_filled(tr):
+                continue
+            todo.append(tr)
+        todo.sort(key=lambda tr: -abs(self.last_value(tr) or 0))
+
+        def value_of(tr, parts):
+            vals = []
+            for sr in parts:
+                v = self._fb_value(tr, sr)
+                if v is None:
+                    return None
+                vals.append(v)
+            return vals
+
+        def fmt_sum(vals):
+            return "=" + "".join(f"{v:.0f}" if i == 0 else (f"+{v:.0f}" if v >= 0 else f"{v:.0f}")
+                                 for i, v in enumerate(vals))
+
+        # 1) memori pola
+        for tr in list(todo):
+            hint = self.recipe_hints.get(tr.row)
+            if not hint:
+                continue
+            parts = []
+            for lbl in hint:
+                m = [s for s in self._cands(tr) if s.idx not in used and clean_label(s.label) == clean_label(lbl)
+                     and s not in parts]
+                if not m:
+                    parts = None
+                    break
+                parts.append(max(m, key=lambda x: self._pos_bonus(tr, x)))
+            vals = value_of(tr, parts) if parts else None
+            if vals is None:
+                continue
+            out[tr.row] = {"value": sum(vals), "vals": vals, "formula": fmt_sum(vals) if len(vals) > 1 else None,
+                           "src": parts[0], "method": "Memori pola", "score": 90.0,
+                           "why": "pola angka tidak tersedia; memakai resep bank ini dari periode sebelumnya: "
+                                  + " + ".join(f"'{p.label}'" for p in parts)}
+            used.update(p.idx for p in parts)
+            todo.remove(tr)
+
+        # 2) nama akun / kamus padanan
+        pairs = []
+        for tr in todo:
+            for sr in self._cands(tr):
+                if sr.idx in used or not sr.values or _is_total(sr.label):
+                    continue
+                base = self._support(tr, sr)
+                if base < 80:
+                    continue
+                v = self._fb_value(tr, sr)
+                plaus, _ = self._plausibility(tr, v)
+                pairs.append((base + self._pos_bonus(tr, sr) + plaus, tr, sr))
+        pairs.sort(key=lambda x: -x[0])
+        done = set()
+        for score, tr, sr in pairs:
+            if tr.row in done or sr.idx in used:
+                continue
+            v = self._fb_value(tr, sr)
+            if v is None:
+                continue
+            last = self.last_value(tr)
+            if last and v and not (0.1 <= abs(v / last) <= 10):
+                continue  # angka tidak wajar vs periode lalu -> jangan dipakai
+            parts, vals = [sr], [v]
+            conv = self.conventions.get(tr.section, {}).get(clean_label(tr.label), [])
+            for extra in conv:
+                m = [s for s in self._cands(tr) if s.idx not in used and s is not sr
+                     and clean_label(s.label).startswith(clean_label(extra))]
+                if m:
+                    ev = self._fb_value(tr, m[0])
+                    if ev is not None:
+                        parts.append(m[0])
+                        vals.append(ev)
+            done.add(tr.row)
+            used.update(p.idx for p in parts)
+            why = "pola angka tidak tersedia; dikenali dari nama akun '" + sr.label + "'"
+            if len(parts) > 1:
+                why += " + kebiasaan penjumlahan: " + " + ".join(f"'{p.label}'" for p in parts[1:])
+            out[tr.row] = {"value": sum(vals), "vals": vals, "formula": fmt_sum(vals) if len(vals) > 1 else None,
+                           "src": sr, "method": "Nama akun", "score": round(min(score, 100.0), 1), "why": why}
+
+        # 2b) template 1 baris, laporan dipecah jadi sub-akun (mis. OCI = Keuntungan + Kerugian)
+        for tr in todo:
+            if tr.row in out:
+                continue
+            kids = [s for s in self._cands(tr) if s.idx not in used and s.parent and s.values
+                    and similarity(tr.label, s.parent) >= 80]
+            if 2 <= len(kids) <= 4:
+                vals = value_of(tr, kids)
+                if vals is not None:
+                    out[tr.row] = {"value": sum(vals), "vals": vals, "formula": fmt_sum(vals), "src": kids[0],
+                                   "method": "Nama akun", "score": 80.0,
+                                   "why": f"pola angka tidak tersedia; = jumlah sub-akun '{kids[0].parent}'"}
+                    used.update(k.idx for k in kids)
+
+        # 3) penyeimbang Neraca: selisih total = persis satu akun yang belum terpakai
+        if not self._ref_usable("BS"):
+            self._balance_repair(recipes, out, used)
+        return out
+
+    def _fb_value(self, tr, sr):
+        """Nilai untuk jalur tanpa pola: ikuti konvensi tanda template (akun pengurang -/- ditulis negatif)."""
+        v, _ = self.value_for(tr, sr)
+        if v:
+            hist = [h for _, h in self.history(tr, 4) if h]
+            if v > 0 and ((hist and all(h < 0 for h in hist)) or "-/-" in sr.label):
+                v = -v
+        return v
+
+    def _balance_repair(self, recipes, out, used):
+        from .matcher import evaluate_column
+
+        rows = {r.row: r for r in self.model.rows}
+        vals = {}
+        for row, rec in recipes.items():
+            vs = [self.cur_value(s, rows[row].section) for s, _ in rec.parts]
+            if all(v is not None for v in vs):
+                vals[row] = sum(sg * v for (_, sg), v in zip(rec.parts, vs))
+        vals.update({row: fb["value"] for row, fb in out.items() if fb["value"] is not None})
+        computed = evaluate_column(self.model, self.target_col, self.ref_col, vals)
+        sides = [("total aset", r"^aset lainnya$"), ("total liabilitas", r"^liabilitas lainnya$")]
+        for total_lbl, other_pat in sides:
+            ttr = next((r for r in self.model.rows if r.section == "BS" and clean_label(r.label) == total_lbl), None)
+            otr = next((r for r in self.model.rows if r.section == "BS" and re.match(other_pat, clean_label(r.label))),
+                       None)
+            if not ttr or not otr or computed.get(ttr.row) is None:
+                continue
+            cands = self.label_candidates(ttr, min_score=90)
+            if not cands:
+                continue
+            rep = self.cur_value(cands[0][1])
+            diff = (rep or 0) - computed[ttr.row]
+            if rep is None or abs(diff) <= 5:
+                continue
+            hits = [s for s in self._cands(otr) if s.idx not in used and s.values and not _is_total(s.label)
+                    and (v := self.cur_value(s, "BS")) is not None and abs(v - diff) <= 1]
+            if len(hits) != 1:
+                continue
+            extra = hits[0]
+            ev = self.cur_value(extra, "BS")
+            if otr.row in out:
+                fb = out[otr.row]
+                base_vals = list(fb.get("vals") or [fb["value"]])
+            elif otr.row in vals:
+                fb = {"src": extra, "method": "Penyeimbang", "score": 70.0, "why": ""}
+                base_vals = [vals[otr.row]]
+            else:
+                fb = {"src": extra, "method": "Penyeimbang", "score": 70.0, "why": ""}
+                base_vals = []
+            new_vals = base_vals + [ev]
+            fb.update({"value": sum(new_vals),
+                       "formula": "=" + "".join(f"{v:.0f}" if i == 0 else (f"+{v:.0f}" if v >= 0 else f"{v:.0f}")
+                                                for i, v in enumerate(new_vals)),
+                       "method": "Penyeimbang" if fb.get("method") != "Nama akun" else "Nama akun"})
+            fb["why"] = (fb.get("why") or "pola angka tidak tersedia") + \
+                f"; ditambah '{extra.label}' supaya {ttr.label} = laporan"
+            out[otr.row] = fb
+            used.add(extra.idx)
+
     def _pos_bonus(self, tr, sr):
         return 6 * max(0.0, 1 - abs(self._tpl_pos(tr) - self._src_pos.get(sr.idx, 0.5)) / 0.25)
 
@@ -264,6 +480,7 @@ class StrictMatcher(Matcher):
             else:
                 reasons[tr.row] = why
         self.recipes = recipes
+        fallback = self._fallback(recipes, reasons, used) if self.fallback else {}
 
         out = []
         for tr in self.model.rows:
@@ -273,10 +490,18 @@ class StrictMatcher(Matcher):
                 continue
             col = self.ref_cols.get(tr.section)
             ref_h = tr.numeric(col) if col else None
+            ref_ok = self._ref_usable(tr.section)
+            should = (ref_h is not None) if ref_ok else self.usually_filled(tr)
             res = MatchResult(tr.row, tr.section, tr.label, tr.parent,
-                              "Nilai" if ref_h is not None else "Biasanya kosong", prev)
+                              "Nilai" if should else "Biasanya kosong", prev)
             rec = recipes.get(tr.row)
-            if rec:
+            if tr.row in fallback:
+                fb = fallback[tr.row]
+                res.value, res.formula = fb["value"], fb.get("formula")
+                res.source_idx, res.source_label = fb["src"].idx, fb["src"].label
+                res.method, res.score = fb["method"], fb.get("score", 0.0)
+                res.note = "🟡 " + fb["why"] + " — CEK"
+            elif rec:
                 vals = [self.cur_value(s, tr.section) for s, _ in rec.parts]
                 s0 = rec.parts[0][0]
                 res.source_idx, res.source_label = s0.idx, s0.label
@@ -483,8 +708,26 @@ class StrictMatcher(Matcher):
 
     def recipe_memory(self):
         """row -> [label akun] untuk resep penjumlahan (disimpan & dipakai periode berikutnya)."""
-        return {row: [sr.label for sr, _ in rec.parts] for row, rec in getattr(self, "recipes", {}).items()
-                if rec.kind == "sum"}
+        return {row: [sr.label for sr, _ in rec.parts] for row, rec in getattr(self, "recipes", {}).items()}
+
+    def learned_conventions(self):
+        """Resep penjumlahan yang ditemukan -> kebiasaan umum (per label template), supaya
+        bisa dipakai bank lain / periode tanpa pola angka."""
+        rows = {r.row: r for r in self.model.rows}
+        out = {}
+        for row, rec in getattr(self, "recipes", {}).items():
+            if rec.kind != "sum" or row not in rows:
+                continue
+            tr = rows[row]
+            main = max(rec.parts, key=lambda p: self._support(tr, p[0]))[0]
+            if self._support(tr, main) < 80:
+                continue  # akun utama tidak senama -> jangan dijadikan kebiasaan umum
+            extras = [clean_label(sr.label) for sr, sg in rec.parts if sr is not main and sg > 0
+                      and not _is_total(sr.label) and len(clean_label(sr.label)) > 3]
+            if not extras:
+                continue
+            out.setdefault(tr.section, {})[clean_label(tr.label)] = extras
+        return out
 
     # reconcile() memakai label_candidates & current_value — sudah kompatibel
 

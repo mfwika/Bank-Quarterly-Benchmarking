@@ -295,3 +295,38 @@ INDIVIDUAL KONSOLIDASIAN
     mt = StrictMatcher(m2, _source_rows(report), 9, merged_aliases({}), (6, 2026))
     res = {r.row: r for r in mt.run()}
     assert res[11].value == 63_000 and "resep sama" in res[11].note
+
+
+def test_fallback_without_reference_column_recognises_accounts_and_balances():
+    """Kolom Dec 24 (acuan Neraca) kosong: akun tetap dikenali dari nama + kebiasaan
+    penjumlahan, lalu total Neraca diseimbangkan ke laporan. Semua ditandai CEK."""
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    ws = wb["BANKS"]
+    for r in range(8, 13):
+        ws[f"F{r}"] = None
+    ws["F13"] = None
+    m = build_sheet_model("BANKS", grid_from_worksheet(ws))
+    mt = StrictMatcher(m, _source_rows(STRICT_REPORT), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[8].value == 120_000 and res[8].method == "Nama akun" and "CEK" in res[8].note
+    assert res[10].value == 530_000
+    # Aset lainnya + Aset keuangan lainnya (kebiasaan) + Aset baru (penyeimbang ke TOTAL ASET 717.000)
+    assert res[11].formula == "=56000+4000+7000" and res[11].value == 67_000
+    assert res[22].value == 12_000 and res[22].method == "Pola angka"  # Laba Rugi tetap ikut pola YoY
+
+
+def test_contra_accounts_follow_template_sign_without_reference():
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    ws = wb["BANKS"]
+    ws["E12"], ws["G12"] = "Akumulasi penyusutan -/-", -900
+    for r in range(8, 14):
+        ws[f"F{r}"] = None
+    m = build_sheet_model("BANKS", grid_from_worksheet(ws))
+    report = STRICT_REPORT.replace("5. Aset baru 7.000 - 7.000 -", "5. Akumulasi penyusutan -/- 1.000 - 1.000 -")
+    mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[12].value == -1_000
