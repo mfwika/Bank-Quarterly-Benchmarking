@@ -25,6 +25,32 @@ import pandas as pd
 import streamlit as st
 from openpyxl.utils import get_column_letter
 
+
+def _reload_changed_bankbench():
+    """Streamlit (juga di Cloud) hanya me-reload main.py saat repo di-update; modul bankbench
+    yang sudah ter-import tetap versi lama -> ImportError. Reload kalau file-nya berubah."""
+    import importlib
+    import sys
+
+    order = ["text", "periods", "aliases", "template_model", "source_parser", "matcher", "pattern",
+             "writer", "banks"]
+    stamps = sys.__dict__.setdefault("_bankbench_mtimes", {})
+    mods = [sys.modules.get(f"bankbench.{n}") for n in order]
+    changed = False
+    for mod in mods:
+        f = getattr(mod, "__file__", None)
+        if f and os.path.exists(f):
+            mt = os.path.getmtime(f)
+            changed |= stamps.get(f, mt) != mt
+            stamps[f] = mt
+    if changed:
+        for mod in mods:
+            if mod is not None:
+                importlib.reload(mod)
+
+
+_reload_changed_bankbench()
+
 from bankbench.aliases import MAPPINGS_PATH, add_learned, load_learned, merged_aliases, save_learned
 from bankbench.banks import detect_bank, sheet_display
 from bankbench.matcher import reconcile
