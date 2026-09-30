@@ -75,6 +75,25 @@ _ENTITY_WORDS = {
 _ENTITY_RE = re.compile(r"individual|individu|konsolidasian|konsolidasi|consolidated|\bbank\b", re.I)
 
 
+def _is_period_start_line(line: str) -> bool:
+    """'1 JAN 2026 1 JAN 2026' = awal periode di header bertumpuk ('1 Jan 2026 s/d 30 Jun 2026')."""
+    found = _HDR_DATE.findall(line)
+    return bool(found) and all(int(d) == 1 and m.lower().startswith("jan") for d, m, _ in found)
+
+
+def _stack_dates(stack):
+    """Header bertumpuk: '30 JUN 2025 30 JUN 2025' lalu '30 JUN 2026 30 JUN 2026' (kolom saling
+    selang-seling, baris tanggal beda tinggi) -> per blok: periode terbaru dulu, lalu pembanding."""
+    k = len(stack[0])
+    if any(len(x) != k for x in stack):
+        return stack[-1]
+    out = []
+    for j in range(k):
+        group = sorted({x[j] for x in stack}, key=lambda p: (p[1], p[0]), reverse=True)
+        out.extend(group)
+    return out
+
+
 def parse_date_header(line: str):
     """'31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024' -> [(12,2025),(12,2024),...]
     (hanya kalau baris itu memang baris header, bukan judul 'Pada Tanggal ...')."""
@@ -92,6 +111,11 @@ def parse_date_header(line: str):
 
 def parse_entity_header(line: str):
     """'INDIVIDUAL KONSOLIDASIAN' -> ['IND','KONS']"""
+    first = _ENTITY_RE.search(line)
+    if first and first.start() > 0 and not re.search(r"\d", line) \
+            and len(_ENTITY_RE.findall(line)) >= 2:
+        # 'NO KOMPONEN MODAL Individual Konsolidasian ...' -> judul kolom label di kiri diabaikan
+        line = line[first.start():]
     words = re.findall(r"[A-Za-z]+", line)
     hits = _ENTITY_RE.findall(line)
     if not hits or len(hits) < 0.6 * max(1, len([w for w in words if w.lower() not in ("dan", "and", "only")])):
@@ -139,7 +163,13 @@ def _combine_header(dates, ents, n_values=None, cats=None):
         return None
     per = [d for d in dates for _ in range(width // m)] if m else [None] * width
     ent = [e for e in ents for _ in range(width // n)] if n else [None] * width
-    return list(zip(per, ent))
+    out = list(zip(per, ent))
+    if m and n and len(set(out)) < len(out):
+        # (periode, entitas) dobel = baris tanggal milik 2 tabel berdampingan -> pakai blok pertama
+        for k in range(1, m):
+            if m % k == 0 and dates == dates[:k] * (m // k) and width % k == 0:
+                return _combine_header(dates[:k], ents, n_values, cats)
+    return out
 
 
 _CONT_WORDS = {"dan", "atau", "dari", "dengan", "yang", "atas", "kepada", "untuk", "pada", "selain", "dalam",
@@ -174,6 +204,7 @@ class _RowBuilder:
         self.ents = None
         self.cats = None
         self.ocr_used = False
+        self.date_stack = None  # baris-baris tanggal header sejak baris angka terakhir
 
     def header_line(self, line) -> bool:
         c = parse_category_header(line)
@@ -182,7 +213,10 @@ class _RowBuilder:
             return True
         d = parse_date_header(line)
         if d:
-            self.dates = d
+            if _is_period_start_line(line):
+                return True
+            self.date_stack = (self.date_stack or []) + [d]
+            self.dates = _stack_dates(self.date_stack) if len(self.date_stack) > 1 else d
             self.cats = None
             return True
         e = parse_entity_header(line)
@@ -218,6 +252,7 @@ class _RowBuilder:
         if section != self.section:
             # tabel baru -> header kolom lama tidak berlaku lagi
             self.dates = None
+            self.date_stack = None
             self.ents = None
             self.cats = None
         self.section = section
@@ -255,6 +290,7 @@ class _RowBuilder:
         if not re.search(r"[A-Za-z]{2,}", label):
             return
         parent = self._push(self._level(token), label)
+        self.date_stack = None
         cols = _combine_header(self.dates, self.ents, len(values), self.cats)
         row = SourceRow(len(self.rows), label, list(values), self.section, parent, self.page, cols)
         row.ancestors = [lbl for _, lbl in self.stack if lbl != label]

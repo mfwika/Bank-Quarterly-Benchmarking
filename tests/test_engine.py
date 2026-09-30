@@ -228,7 +228,8 @@ def test_strict_follows_reference_pattern():
     assert res[10].value == 530_000
     assert res[11].value == 60_000 and res[11].method == "Pola penjumlahan"  # 56.000 + 4.000
     assert res[11].formula == "=56000+4000"
-    assert res[12].value is None and "kosong di periode acuan" in res[12].note  # akun baru -> tidak ditebak
+    # akun baru (kosong di acuan) hanya diisi kalau menutup selisih TOTAL ASET vs laporan -> ditandai CEK
+    assert res[12].value == 7_000 and res[12].method == "Penyeimbang" and "CEK" in res[12].note
     assert res[9].value is None
     assert res[22].value == 12_000
     assert res[23].value == 3_100      # pola acuan: beban disimpan positif
@@ -312,8 +313,9 @@ def test_fallback_without_reference_column_recognises_accounts_and_balances():
     res = {r.row: r for r in mt.run()}
     assert res[8].value == 120_000 and res[8].method == "Nama akun" and "CEK" in res[8].note
     assert res[10].value == 530_000
-    # Aset lainnya + Aset keuangan lainnya (kebiasaan) + Aset baru (penyeimbang ke TOTAL ASET 717.000)
-    assert res[11].formula == "=56000+4000+7000" and res[11].value == 67_000
+    # Aset lainnya + Aset keuangan lainnya (kebiasaan); Aset baru -> baris senama (penyeimbang ke TOTAL ASET 717.000)
+    assert res[11].formula == "=56000+4000" and res[11].value == 60_000
+    assert res[12].value == 7_000 and res[12].method == "Penyeimbang"
     assert res[22].value == 12_000 and res[22].method == "Pola angka"  # Laba Rugi tetap ikut pola YoY
 
 
@@ -330,3 +332,71 @@ def test_contra_accounts_follow_template_sign_without_reference():
     mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
     res = {r.row: r for r in mt.run()}
     assert res[12].value == -1_000
+
+
+def test_balance_repair_puts_new_accounts_on_the_right_side():
+    """Akun laporan yang belum dikenal diletakkan sesuai sisinya di laporan (aset / liabilitas)
+    ke '... lainnya', hanya kalau kombinasinya persis menutup selisih total."""
+    from bankbench.pattern import StrictMatcher
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["B2"] = "NERACA - Consol"
+    for c, lbl in zip("FGH", ["Dec 24", "Sep 25", "Dec 25"]):
+        ws[f"{c}6"] = lbl
+    for r, lbl, v in [(8, "Kas", 100), (9, "Aset lainnya", 50), (12, "Giro", 90), (13, "Liabilitas lainnya", 20),
+                      (16, "Modal disetor", 40)]:
+        ws[f"C{r}"], ws[f"F{r}"], ws[f"G{r}"] = lbl, v * 1000, v * 1000
+    ws["C10"] = "TOTAL ASET"
+    ws["C14"] = "TOTAL LIABILITAS"
+    ws["C17"] = "TOTAL EKUITAS"
+    ws["C18"] = "JUMLAH KEWAJIBAN DAN MODAL"
+    for c in "FGH":
+        ws[f"{c}10"], ws[f"{c}14"] = f"=SUM({c}8:{c}9)", f"=SUM({c}12:{c}13)"
+        ws[f"{c}17"], ws[f"{c}18"] = f"=SUM({c}16:{c}16)", f"={c}14+{c}17"
+    report = """LAPORAN POSISI KEUANGAN
+INDIVIDUAL KONSOLIDASIAN
+31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024
+1. Kas 110.000 100.000 110.000 100.000
+2. Aset lainnya 50.000 50.000 50.000 50.000
+3. Aset kontrak reasuransi 3.000 - 3.000 -
+4. Aset kelompok lepasan 2.000 - 2.000 -
+TOTAL ASET 165.000 150.000 165.000 150.000
+5. Giro 95.000 90.000 95.000 90.000
+6. Liabilitas lainnya 20.000 20.000 20.000 20.000
+7. Liabilitas kelompok lepasan 1.000 - 1.000 -
+TOTAL LIABILITAS 116.000 110.000 116.000 110.000
+8. Modal disetor 49.000 40.000 49.000 40.000
+TOTAL EKUITAS 49.000 40.000 49.000 40.000
+TOTAL LIABILITAS DAN EKUITAS 165.000 150.000 165.000 150.000
+"""
+    m = build_sheet_model("Sheet", grid_from_worksheet(ws))
+    mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[9].value == 55_000 and res[9].formula == "=50000+3000+2000"
+    assert res[13].value == 21_000 and "Liabilitas kelompok lepasan" in res[13].note
+    checks = reconcile(mt, {r: x.value for r, x in res.items() if x.value is not None})
+    assert all(c["Status"] == "OK" for c in checks), checks
+
+
+def test_stacked_and_side_by_side_headers():
+    from bankbench.source_parser import _combine_header, parse_entity_header
+
+    assert parse_entity_header("NO KOMPONEN MODAL Individual Konsolidasian Individual Konsolidasian") == \
+        ["IND", "KONS", "IND", "KONS"]
+    assert parse_entity_header("Modal Pelengkap bank") is None
+    # tanggal milik 2 tabel berdampingan -> tidak boleh ada (periode, entitas) dobel
+    assert _combine_header([(6, 2026), (6, 2025), (6, 2026), (6, 2025)], ["IND", "KONS", "IND", "KONS"], 4) == \
+        [((6, 2026), "IND"), ((6, 2026), "KONS"), ((6, 2025), "IND"), ((6, 2025), "KONS")]
+    text = """LAPORAN LABA RUGI
+INDIVIDUAL KONSOLIDASIAN
+1 JAN 2025 1 JAN 2025
+1 JAN 2026 1 JAN 2026
+s/d s/d s/d s/d
+30 JUN 2025 30 JUN 2025
+30 JUN 2026 30 JUN 2026
+1. Pendapatan bunga 37.624 32.607 38.630 33.614
+2. Kepentingan non pengendali 53 71
+"""
+    rows = _source_rows(text)
+    assert rows[0].cols == [((6, 2026), "IND"), ((6, 2025), "IND"), ((6, 2026), "KONS"), ((6, 2025), "KONS")]

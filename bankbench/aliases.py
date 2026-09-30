@@ -75,6 +75,8 @@ SEED_ALIASES = {
         "modal disetor": ["modal disetor setelah dikurangi treasury stock", "modal disetor"],
         "cadangan tambahan modal disclosed reserve": ["cadangan tambahan modal"],
         "level atas upper tier 2": ["modal pelengkap tier 2", "modal pelengkap"],
+        "instrumen modal inovatif lainnya": ["modal inti tambahan additional tier 1 at 1", "modal inti tambahan at 1",
+                                             "modal inti tambahan", "additional tier 1 at 1", "additional tier 1"],
         "aset tertimbang menurut risiko atmr untuk risiko kredit": ["atmr risiko kredit"],
         "aset tertimbang menurut risiko atmr untuk risiko operasional": ["atmr risiko operasional"],
         "aset tertimbang menurut risiko atmr untuk risiko pasar": ["atmr risiko pasar"],
