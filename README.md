@@ -25,12 +25,14 @@ Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
      2. *Nama akun* — nama/kamus padanan + posisi baris, dicek wajar vs periode lalu (0,1×–10×);
         ditambah *kebiasaan penjumlahan* (mis. Aset lainnya + Aset keuangan lainnya) yang dipelajari
         dari resep bank lain (`_conventions`); akun `-/-` ditulis negatif sesuai konvensi template.
-     3. *Penyeimbang* (hanya Neraca tanpa acuan) — kalau TOTAL ASET/LIABILITAS selisih persis satu
-        akun laporan yang belum terpakai, akun itu ditambahkan ke Aset/Liabilitas lainnya.
+     3. *Penyeimbang Neraca* — akun laporan yang belum terpakai dikenali **sisinya** dari posisinya
+        di laporan (sebelum TOTAL ASET = aset, sebelum TOTAL LIABILITAS = liabilitas, sesudahnya =
+        ekuitas). Kombinasi akun yang jumlahnya persis menutup selisih TOTAL ASET / JUMLAH LIABILITAS
+        DAN EKUITAS dimasukkan ke baris template yang namanya cocok, atau ke Aset/Liabilitas/Ekuitas lainnya.
      Ini berlaku saat kolom acuan kosong (mis. Dec 25 belum diisi) atau angka pembanding di-restate.
      Yang tetap tidak dikenali → dikosongkan & ditandai ⚠.
-   - Baris yang kosong di periode acuan tidak diisi; kalau laporan punya akun bernama sama
-     dengan angka ≠ 0, muncul peringatan "akun baru?".
+   - Baris yang kosong di periode acuan tidak diisi, kecuali akun barunya diperlukan supaya Neraca
+     sama dengan laporan (lapis penyeimbang di atas); selain itu muncul peringatan "akun baru?".
    - Entitas: Neraca/Laba Rugi/KPMM → **Konsolidasian** (kecuali judul seksi template "Bank");
      Rasio & NPL → ikut kolom yang cocok di periode acuan (biasanya Bank only).
    - **NPL** (Current / Special Mention / NPL): tiap komponen rumus acuan, mis.
@@ -85,6 +87,7 @@ python -m pytest -q -m "not slow"
 | Mandiri Q4 2025 | 1 halaman koran, 3 kolom | Angka 2024 di-restate Mandiri → Pendapatan/Beban bunga diisi dari nama akun (🟡 CEK) |
 | Mandiri Q2 2026 | 1 halaman koran, 2 "lantai" dengan kolom berbeda, baris miring | Terbaca penuh; Neraca Jun 26 memakai hasil Dec 25 sebagai acuan |
 | Permata Jun 2026 | PDF teks | Kolom Dec 25 kosong → Neraca diisi dari nama akun, seimbang ke laporan; LR/KPMM/NPL/rasio ikut pola |
+| BNI 1H 2026 | PDF teks, header bertumpuk & tabel berdampingan | Neraca seimbang (akun asuransi/kelompok lepasan ditempatkan otomatis), LR & KPMM cocok dengan laporan |
 | SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
 
 ## Catatan

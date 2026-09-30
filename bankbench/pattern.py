@@ -19,6 +19,9 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from rapidfuzz import fuzz
+
+from .aliases import lookup
 from .matcher import MIN_ANCHOR_ABS, Layout, Matcher, MatchResult, _close, _is_expense
 from .text import clean_label, similarity
 
@@ -204,7 +207,13 @@ class StrictMatcher(Matcher):
             return None, "tidak ada akun laporan dengan angka acuan yang sama"
 
         # 2) jumlah 2-3 akun (tanpa baris total/subtotal), minimal satu yang namanya mirip
-        pool = [(s, r) for s, r in cands if r != 0 and not _is_total(s.label) and abs(r) <= 3 * abs(h) + 1]
+        # baris beban (positif di template): pos laporan '(beban) ... bersih' yang negatif ikut dihitung
+        expense = h > 0 and bool(re.match(r"\s*(beban|kerugian)", tr.label, re.I))
+        sign_of = {s.idx: -1 for s, r in cands if expense and r < 0}
+        # 'Pendapatan (beban) ... bersih' boleh jadi komponen (mis. asuransi keuangan), tapi dikenai penalti subtotal
+        pool = [(s, abs(r) if expense else r) for s, r in cands
+                if r != 0 and (not _is_total(s.label) or _is_subtotalish(s.label)) and not _is_grand_total(s.label)
+                and abs(r) <= 3 * abs(h) + 1]
         pool = pool[:120]
         by_val = defaultdict(list)
         for i, (s, r) in enumerate(pool):
@@ -216,6 +225,7 @@ class StrictMatcher(Matcher):
                 if max(sups) >= 60:
                     # utamakan kombinasi yang anggotanya bukan subtotal & lebih sedikit
                     pen = sum(8 for i in c if _is_subtotalish(pool[i][0].label))
+                    pen += sum(6 for i in c if pool[i][0].idx in sign_of)  # tanda dibalik: pilihan terakhir
                     out.append((max(sups) + 0.2 * sum(sups) / len(sups) - pen - 3 * len(c), c))
             return out
 
@@ -261,7 +271,7 @@ class StrictMatcher(Matcher):
         scored.sort(key=lambda x: x[0], reverse=True)
         if len(scored) > 1 and scored[0][0] - scored[1][0] < 5:
             return None, "beberapa kombinasi akun cocok dengan angka acuan — isi manual"
-        parts = [(pool[i][0], 1) for i in scored[0][1]]
+        parts = [(pool[i][0], sign_of.get(pool[i][0].idx, 1)) for i in scored[0][1]]
         parts.sort(key=lambda p: -self._support(tr, p[0]))
         return Recipe(parts, "sum", h), None
 
@@ -346,6 +356,9 @@ class StrictMatcher(Matcher):
                 base = self._support(tr, sr)
                 if base < 80:
                     continue
+                if sr.parent and self._is_parent_name(tr, sr.parent) and \
+                        similarity(tr.label, f"{sr.parent} {sr.label}") < 90:
+                    continue  # baris template = induknya (mis. OCI = Keuntungan + Kerugian) -> lapis 2b
                 v = self._fb_value(tr, sr)
                 plaus, _ = self._plausibility(tr, v)
                 pairs.append((base + self._pos_bonus(tr, sr) + plaus, tr, sr))
@@ -383,7 +396,7 @@ class StrictMatcher(Matcher):
             if tr.row in out:
                 continue
             kids = [s for s in self._cands(tr) if s.idx not in used and s.parent and s.values
-                    and similarity(tr.label, s.parent) >= 80]
+                    and self._is_parent_name(tr, s.parent)]
             if 2 <= len(kids) <= 4:
                 vals = value_of(tr, kids)
                 if vals is not None:
@@ -392,10 +405,13 @@ class StrictMatcher(Matcher):
                                    "why": f"pola angka tidak tersedia; = jumlah sub-akun '{kids[0].parent}'"}
                     used.update(k.idx for k in kids)
 
-        # 3) penyeimbang Neraca: selisih total = persis satu akun yang belum terpakai
-        if not self._ref_usable("BS"):
-            self._balance_repair(recipes, out, used)
+        # 3) penyeimbang Neraca: akun baru yang menutup selisih total -> dimasukkan ke sisi yang benar
+        self._balance_repair(recipes, out, used)
         return out
+
+    def _is_parent_name(self, tr, parent_label):
+        names = lookup(self.aliases, tr.section, tr.label, tr.parent) or []
+        return similarity(tr.label, parent_label) >= 80 or clean_label(parent_label) in names
 
     def _fb_value(self, tr, sr):
         """Nilai untuk jalur tanpa pola: ikuti konvensi tanda template (akun pengurang -/- ditulis negatif)."""
@@ -407,54 +423,133 @@ class StrictMatcher(Matcher):
         return v
 
     def _balance_repair(self, recipes, out, used):
+        """Neraca harus seimbang dengan laporan. Akun laporan yang belum terpakai dikenali sisinya
+        dari posisinya di laporan (sebelum TOTAL ASET = aset, sebelum TOTAL LIABILITAS = liabilitas,
+        sesudahnya = ekuitas). Kombinasi akun yang jumlahnya persis menutup selisih total dimasukkan:
+        ke baris template yang namanya cocok, atau ke Aset/Liabilitas/Ekuitas lainnya."""
+        from itertools import combinations
+
         from .matcher import evaluate_column
 
         rows = {r.row: r for r in self.model.rows}
-        vals = {}
-        for row, rec in recipes.items():
-            vs = [self.cur_value(s, rows[row].section) for s, _ in rec.parts]
-            if all(v is not None for v in vs):
-                vals[row] = sum(sg * v for (_, sg), v in zip(rec.parts, vs))
-        vals.update({row: fb["value"] for row, fb in out.items() if fb["value"] is not None})
-        computed = evaluate_column(self.model, self.target_col, self.ref_col, vals)
-        sides = [("total aset", r"^aset lainnya$"), ("total liabilitas", r"^liabilitas lainnya$")]
-        for total_lbl, other_pat in sides:
-            ttr = next((r for r in self.model.rows if r.section == "BS" and clean_label(r.label) == total_lbl), None)
-            otr = next((r for r in self.model.rows if r.section == "BS" and re.match(other_pat, clean_label(r.label))),
-                       None)
-            if not ttr or not otr or computed.get(ttr.row) is None:
+        bs_rows = [r for r in self.model.rows if r.section == "BS"]
+        src = [x for x in self.source if x.section == "BS"]
+
+        def terms_of(row):
+            if row in out:
+                return list(out[row].get("vals") or [out[row]["value"]])
+            rec = recipes.get(row)
+            if rec:
+                vs = [self.cur_value(x, rows[row].section) for x, _ in rec.parts]
+                if all(v is not None for v in vs):
+                    return [sg * v for (_, sg), v in zip(rec.parts, vs)]
+            return None
+
+        def computed():
+            vals = {}
+            for r in bs_rows:
+                t = terms_of(r.row)
+                if t is not None:
+                    vals[r.row] = sum(t)
+            return evaluate_column(self.model, self.target_col, self.ref_col, vals)
+
+        def tpl(pat):
+            return next((r for r in bs_rows if re.match(pat, clean_label(r.label))), None)
+
+        def rep(pat):
+            x = next((x for x in src if re.match(pat, clean_label(x.label))), None)
+            return x, (self.cur_value(x, "BS") if x else None)
+
+        t_aset, t_le = tpl(r"^total aset$"), tpl(r"^(jumlah|total) (kewajiban|liabilitas) dan (modal|ekuitas)$")
+        t_liab = tpl(r"^total (liabilitas|kewajiban)$")
+        (s_aset, v_aset), (s_le, v_le) = rep(r"^total aset$"), rep(r"^(jumlah|total) (liabilitas|kewajiban) dan (ekuitas|modal)$")
+        s_liab, _ = rep(r"^(jumlah|total) (liabilitas|kewajiban)$")
+        if not t_aset or not s_aset:
+            return
+
+        def side_src(x):
+            if x.idx < s_aset.idx:
+                return "A"
+            return "L" if s_liab and x.idx < s_liab.idx else "E"
+
+        def side_tpl(r):
+            if r.row < t_aset.row:
+                return "A"
+            return "L" if t_liab and r.row < t_liab.row else "E"
+
+        used_labels = {clean_label(x.label) for x in src if x.idx in used}
+        parents = {clean_label(x.parent) for x in src if x.parent}
+        pool = []
+        for x in src:
+            if x.idx in used or not x.values or _is_total(x.label) or clean_label(x.label) in parents:
                 continue
-            cands = self.label_candidates(ttr, min_score=90)
-            if not cands:
+            if x.parent and clean_label(x.parent) in used_labels:
                 continue
-            rep = self.cur_value(cands[0][1])
-            diff = (rep or 0) - computed[ttr.row]
-            if rep is None or abs(diff) <= 5:
+            v = self.cur_value(x, "BS")
+            if v is None or abs(v) < 0.5:
                 continue
-            hits = [s for s in self._cands(otr) if s.idx not in used and s.values and not _is_total(s.label)
-                    and (v := self.cur_value(s, "BS")) is not None and abs(v - diff) <= 1]
-            if len(hits) != 1:
+            pool.append((x, v))
+
+        others = {"A": tpl(r"^aset lainnya$"), "L": tpl(r"^liabilitas lainnya$"), "E": tpl(r"^ekuitas lainnya$")}
+        filled = {r.row for r in bs_rows if terms_of(r.row) is not None}
+        for sides, t_row, rep_v in ((("A",), t_aset, v_aset), (("L", "E"), t_le, v_le)):
+            if t_row is None or rep_v is None:
                 continue
-            extra = hits[0]
-            ev = self.cur_value(extra, "BS")
-            if otr.row in out:
-                fb = out[otr.row]
-                base_vals = list(fb.get("vals") or [fb["value"]])
-            elif otr.row in vals:
-                fb = {"src": extra, "method": "Penyeimbang", "score": 70.0, "why": ""}
-                base_vals = [vals[otr.row]]
-            else:
-                fb = {"src": extra, "method": "Penyeimbang", "score": 70.0, "why": ""}
-                base_vals = []
-            new_vals = base_vals + [ev]
-            fb.update({"value": sum(new_vals),
-                       "formula": "=" + "".join(f"{v:.0f}" if i == 0 else (f"+{v:.0f}" if v >= 0 else f"{v:.0f}")
-                                                for i, v in enumerate(new_vals)),
-                       "method": "Penyeimbang" if fb.get("method") != "Nama akun" else "Nama akun"})
-            fb["why"] = (fb.get("why") or "pola angka tidak tersedia") + \
-                f"; ditambah '{extra.label}' supaya {ttr.label} = laporan"
-            out[otr.row] = fb
-            used.add(extra.idx)
+            comp = computed().get(t_row.row)
+            if comp is None:
+                continue
+            diff = rep_v - comp
+            if abs(diff) <= 5:
+                continue
+            cand = sorted([(x, v) for x, v in pool if side_src(x) in sides], key=lambda p: -abs(p[1]))[:16]
+            pick = None
+            for k in range(len(cand), 0, -1):
+                for combo in combinations(cand, k):
+                    if abs(sum(v for _, v in combo) - diff) <= max(1.0, 0.5 * k):
+                        pick = combo
+                        break
+                if pick:
+                    break
+            if not pick:
+                continue
+            for x, v in pick:
+                side = side_src(x)
+                # 1) baris template kosong yang namanya cocok, di sisi yang sama
+                named = [(self._support(r, x), r) for r in bs_rows
+                         if r.row not in filled and r.row not in self._formula_rows and side_tpl(r) == side]
+                named = [p for p in named if p[0] >= 85 and (self._alias_score(p[1], x) or
+                                                              fuzz.token_sort_ratio(clean_label(p[1].label),
+                                                                                    clean_label(x.label)) >= 80)]
+                if named:
+                    r = max(named, key=lambda p: p[0])[1]
+                    before = computed().get(t_row.row)
+                    out[r.row] = {"value": v, "vals": [v], "formula": None, "src": x, "method": "Penyeimbang",
+                                  "score": 75.0, "why": f"akun baru '{x.label}' (sisi {'Aset' if side == 'A' else 'Liabilitas' if side == 'L' else 'Ekuitas'} di laporan) "
+                                                        "diisi supaya Neraca = laporan"}
+                    after = computed().get(t_row.row)
+                    if before is not None and after is not None and abs(after - before - v) <= 1:
+                        filled.add(r.row)
+                        used.add(x.idx)
+                        continue
+                    del out[r.row]  # baris itu tidak ikut dijumlah di total template -> pakai '... lainnya'
+
+                # 2) masuk ke '... lainnya' di sisi yang sama
+                r = others.get(side) or others.get("L" if side == "E" else side)
+                if r is None:
+                    continue
+                base = terms_of(r.row) or []
+                fb = out.get(r.row) or {"src": x, "method": "Penyeimbang", "score": 70.0,
+                                         "why": "sesuai pola" if r.row in recipes else "pola angka tidak tersedia"}
+                new_vals = base + [v]
+                fb.update({"value": sum(new_vals), "vals": new_vals,
+                           "formula": "=" + "".join(f"{t:.0f}" if i == 0 else (f"+{t:.0f}" if t >= 0 else f"{t:.0f}")
+                                                    for i, t in enumerate(new_vals))})
+                if fb["method"] not in ("Nama akun", "Memori pola"):
+                    fb["method"] = "Penyeimbang"
+                fb["why"] += f"; ditambah akun baru '{x.label}' supaya Neraca = laporan"
+                out[r.row] = fb
+                filled.add(r.row)
+                used.add(x.idx)
 
     def _pos_bonus(self, tr, sr):
         return 6 * max(0.0, 1 - abs(self._tpl_pos(tr) - self._src_pos.get(sr.idx, 0.5)) / 0.25)
@@ -762,6 +857,10 @@ def _in_kredit(sr) -> bool:
 
 def _is_subtotalish(label: str) -> bool:
     return bool(re.search(r"(,.*\bdan\b.*(neto|bersih))|^pendapatan \(beban\)", label or "", re.I))
+
+
+def _is_grand_total(label: str) -> bool:
+    return bool(re.match(r"\s*(total|jumlah|laba \(rugi\)|laba bersih)", label or "", re.I))
 
 
 def _is_total(label: str) -> bool:

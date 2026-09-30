@@ -87,7 +87,7 @@ ALL_SECTIONS = ["BS", "IS", "CAP", "RATIO", "NPL"]
 # ---------------------------------------------------------------------------------
 # Naikkan angka ini setiap struktur data parser/model berubah -> cache lama otomatis dibuang
 # (Streamlit Cloud tidak selalu restart penuh setelah update kode).
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 @st.cache_data(show_spinner=False)

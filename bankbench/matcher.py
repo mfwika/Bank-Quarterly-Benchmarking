@@ -305,7 +305,8 @@ class Matcher:
             if inherited:
                 return inherited
         names = lookup(self.aliases, tr.section, tr.label, tr.parent)
-        if not names or clean_label(sr.label) not in names:
+        if not names or (clean_label(sr.label) not in names
+                         and clean_label(re.sub(r"\(.*?\)", " ", sr.label)) not in names):
             return 0.0
         if tr.parent and sr.parent and similarity(tr.parent, sr.parent) < 55:
             # alias tanpa induk ('surat berharga') jangan nyasar ke anak 'Cadangan kerugian'
