@@ -450,3 +450,33 @@ def test_ratio_with_lost_decimal_is_rescaled():
     mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
     res = {r.row: r for r in mt.run()}
     assert res[60].value == 1.4 and "CEK" in res[60].note
+
+
+def test_reader_header_variants():
+    from bankbench.source_parser import (_heading_section, parse_category_header, parse_date_header,
+                                         parse_year_header)
+
+    # Inggris 'December 31, 2025', catatan audit di header, header tahun saja, judul berspasi per huruf
+    assert parse_date_header("No. DESCRIPTION December 31, 2025 December 31, 2024 December 31, 2025 31 Desember 2024*") \
+        == [(12, 2025), (12, 2024), (12, 2025), (12, 2024)]
+    assert parse_date_header("NO POS - POS 30 JUN 2026 (Direviu) 30 JUN 2025 (Tidak Direviu & Tidak Diaudit)") \
+        == [(6, 2026), (6, 2025)]
+    assert parse_year_header("No. POS-POS 2025 2024") == [2025, 2024]
+    assert parse_year_header("LABA BERSIH PER SAHAM 2015 2020") is None
+    assert _heading_section("L A P O R A N P O S I S I K E U A N G A N") == "BS"
+    assert parse_category_header("Current Mention Standard Doubtful Loss Total") == ["L", "DPK", "KL", "D", "M", "JUMLAH"]
+    assert parse_category_header("Special Sub Special Sub") is None
+
+
+def test_reader_wrapped_label_split_digit_and_year_header():
+    text = """LAPORAN LABA RUGI
+31 Desember 2025 dan 2024
+No. POS-POS 2025 2024
+a. Gain (loss) from adjustments arising resulting from translation of financial
+432,128 47,531
+1. Pendapatan bunga 120.000 4 9.112
+"""
+    rows = _source_rows(text)
+    assert rows[0].label.startswith("Gain (loss) from adjustments") and rows[0].values == [432128.0, 47531.0]
+    assert rows[0].cols == [((12, 2025), None), ((12, 2024), None)]
+    assert rows[1].values == [120000.0, 49112.0]  # '4 9.112' -> 49.112

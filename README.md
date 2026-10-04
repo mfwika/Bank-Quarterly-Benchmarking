@@ -95,6 +95,9 @@ python -m pytest -q -m "not slow"
 | Mandiri Q2 2026 | 1 halaman koran, 2 "lantai" dengan kolom berbeda, baris miring | Terbaca penuh; Neraca Jun 26 memakai hasil Dec 25 sebagai acuan |
 | Permata Jun 2026 | PDF teks | Kolom Dec 25 kosong → Neraca diisi dari nama akun, seimbang ke laporan; LR/KPMM/NPL/rasio ikut pola |
 | BNI 1H 2026 | PDF teks, header bertumpuk & tabel berdampingan | Neraca seimbang (akun asuransi/kelompok lepasan ditempatkan otomatis), LR & KPMM cocok dengan laporan |
+| BRI Des 2025 | PDF teks bahasa Inggris, angka 2024 di-restate (PSAK 117) | Neraca, Laba Rugi & KPMM cocok; nama akun Inggris & salah ketik ('Comissions', 'Deffered') dikenali |
+| BNI Des 2025 | PDF teks, akun asuransi baru | Seimbang; akun asuransi & OCI baru ditempatkan otomatis; NPL terisi |
+| OCBC NISP Des 2025 | Neraca & liabilitas berdampingan, judul berspasi per huruf, header hanya tahun | Semua total cocok; halaman Unit Usaha Syariah diabaikan; NPL terisi |
 | SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
 
 ## Catatan

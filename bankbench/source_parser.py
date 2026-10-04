@@ -63,6 +63,12 @@ def _heading_section(text: str):
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
             return key
+    # judul ditulis berspasi per huruf ('L A P O R A N  P O S I S I  K E U A N G A N')
+    if re.search(r"(\b[A-Z] ){4,}", u):
+        compact = re.sub(r"\s+", "", u)
+        for key, pat in SECTION_PATTERNS:
+            if re.search(pat.pattern.replace(" ", r"\s*"), compact):
+                return key
     return None
 
 
@@ -75,9 +81,21 @@ _ENTITY_WORDS = {
 _ENTITY_RE = re.compile(r"individual|individu|konsolidasian|konsolidasi|consolidated|\bbank\b", re.I)
 
 
+_HDR_DATE_EN = re.compile(
+    r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b", re.I)
+
+
+def _find_dates(line: str):
+    """[(hari, bulan, tahun)] urut posisi: '31 Des 2025' maupun 'December 31, 2025'."""
+    hits = [(m.start(), (m.group(1), m.group(2), m.group(3))) for m in _HDR_DATE.finditer(line)]
+    hits += [(m.start(), (m.group(2), m.group(1), m.group(3))) for m in _HDR_DATE_EN.finditer(line)
+             if not any(abs(m.start() - h[0]) < 3 for h in hits)]
+    return [h[1] for h in sorted(hits)]
+
+
 def _is_period_start_line(line: str) -> bool:
     """'1 JAN 2026 1 JAN 2026' = awal periode di header bertumpuk ('1 Jan 2026 s/d 30 Jun 2026')."""
-    found = _HDR_DATE.findall(line)
+    found = _find_dates(line)
     return bool(found) and all(int(d) == 1 and m.lower().startswith("jan") for d, m, _ in found)
 
 
@@ -99,14 +117,32 @@ def parse_date_header(line: str):
     (hanya kalau baris itu memang baris header, bukan judul 'Pada Tanggal ...')."""
     from .periods import MONTHS
 
-    found = _HDR_DATE.findall(line)
+    found = _find_dates(line)
     if len(found) < 2:
         return None
-    rest = _HDR_DATE.sub(" ", line)
+    rest = _HDR_DATE_EN.sub(" ", _HDR_DATE.sub(" ", line))
+    rest = re.sub(r"\([^()]*\)?", " ", rest)  # '(Direviu)', '(Tidak Direviu & Tidak Diaudit)'
+    rest = re.sub(r"\b(tidak|direviu|diaudit|audited|unaudited|reviewed|not)\b", " ", rest, flags=re.I)
     words = re.findall(r"[A-Za-z]{3,}", rest)
     if len(words) > 6:
         return None
     return [(MONTHS.get(m.lower()) or MONTHS.get(m.lower()[:3]), int(y)) for _, m, y in found]
+
+
+def parse_year_header(line: str):
+    """'No. POS-POS 2025 2024' (header hanya tahun) -> [2025, 2024]."""
+    if _find_dates(line):
+        return None
+    years = re.findall(r"(?<![\d.,])(?:19|20)\d{2}(?![\d.,])", line)
+    if len(years) < 2:
+        return None
+    rest = re.sub(r"(?<![\d.,])(?:19|20)\d{2}(?![\d.,])", " ", line)
+    words = {w.lower() for w in re.findall(r"[A-Za-z]{2,}", rest)}
+    header_words = {"no", "pos", "description", "keterangan", "uraian", "items", "item", "bank", "individual",
+                    "konsolidasian", "consolidated", "komponen", "modal", "rasio", "ratio", "account", "accounts"}
+    if re.search(r"\d", rest) or not words <= header_words:
+        return None  # baris akun yang angkanya kebetulan mirip tahun ('Laba per saham 2015 2020')
+    return [int(y) for y in years]
 
 
 def parse_entity_header(line: str):
@@ -124,7 +160,10 @@ def parse_entity_header(line: str):
 
 
 _CAT_WORDS = {"l": "L", "lancar": "L", "dpk": "DPK", "kl": "KL", "d": "D", "m": "M", "macet": "M",
-              "jumlah": "JUMLAH", "total": "JUMLAH", "current": "L", "sm": "DPK", "ss": "KL"}
+              "jumlah": "JUMLAH", "total": "JUMLAH", "current": "L", "sm": "DPK", "ss": "KL",
+              # header Inggris 2 baris: 'Special Sub' di atas 'Current Mention Standard Doubtful Loss Total'
+              "mention": "DPK", "standard": "KL", "substandard": "KL", "doubtful": "D", "loss": "M"}
+_CAT_SKIP = {"special", "sub"}
 
 
 def parse_category_header(line: str):
@@ -133,6 +172,7 @@ def parse_category_header(line: str):
     toks = re.findall(r"[A-Za-z]+", line)
     if len(toks) < 5 or re.search(r"\d", line):
         return None
+    toks = [t for t in toks if t.lower() not in _CAT_SKIP]
     cats = [_CAT_WORDS.get(t.lower()) for t in toks]
     if any(c is None for c in cats) or "DPK" not in cats or "KL" not in cats:
         return None
@@ -207,6 +247,22 @@ class _RowBuilder:
         self.date_stack = None  # baris-baris tanggal header sejak baris angka terakhir
 
     def header_line(self, line) -> bool:
+        found = _find_dates(line)
+        if found and not re.search(r"\d[.,]\d{3}", line):
+            # judul '31 Desember 2025 dan 2024' / '30 Juni 2026 dan 31 Desember 2025': bulan per tahun
+            from .periods import MONTHS
+            self.title_months = {int(y): (MONTHS.get(m.lower()) or MONTHS.get(m.lower()[:3])) for _, m, y in found}
+            self.title_months.setdefault(0, next(iter(self.title_months.values())))
+        ys = parse_year_header(line)
+        if ys:
+            tm = getattr(self, "title_months", None) or {}
+            dflt = tm.get(0) or 12
+            new = [(tm.get(y, dflt), y) for y in ys]
+            if new != self.dates:  # header halaman lanjutan (tanggal sama) -> kategori kolektibilitas tetap
+                self.cats = None
+            self.dates = new
+            self.date_stack = None
+            return True
         c = parse_category_header(line)
         if c:
             self.cats = c
@@ -216,8 +272,10 @@ class _RowBuilder:
             if _is_period_start_line(line):
                 return True
             self.date_stack = (self.date_stack or []) + [d]
-            self.dates = _stack_dates(self.date_stack) if len(self.date_stack) > 1 else d
-            self.cats = None
+            new = _stack_dates(self.date_stack) if len(self.date_stack) > 1 else d
+            if new != self.dates:
+                self.cats = None
+            self.dates = new
             return True
         e = parse_entity_header(line)
         if e:
@@ -225,8 +283,25 @@ class _RowBuilder:
             return True
         return False
 
-    def set_page(self, page):
+    def _merge_split_digit(self, values):
+        """'4 9,112' (digit pertama terpisah spasi) -> 49,112, hanya kalau jumlah angka lebih satu
+        dari jumlah kolom header."""
+        width = max(len(self.dates or []), len(self.ents or []))
+        if not width or len(values) != width + 1:
+            return values
+        for i in range(len(values) - 1):
+            a, b = values[i], values[i + 1]
+            if a == int(a) and 0 < a < 10 and b == int(b) and 1000 <= b < 100000:
+                merged = int(a) * 10 ** len(str(int(b))) + b
+                return values[:i] + [float(merged)] + values[i + 2:]
+        return values
+
+    def set_page(self, page, head_text=""):
         self.page = page
+        # halaman Unit Usaha Syariah (judul kecil di atas 'LAPORAN POSISI KEUANGAN') -> abaikan sehalaman
+        self.uus_page = bool(re.search(r"\bUUS\b|UNIT USAHA SYARIAH", head_text.upper()))
+        if self.uus_page:
+            self.heading("OTHER")
 
     def _level(self, token):
         kind = enumerator_kind(token) if token else None
@@ -249,6 +324,8 @@ class _RowBuilder:
         return parent
 
     def heading(self, section):
+        if getattr(self, "uus_page", False):
+            section = "OTHER"
         if section != self.section:
             # tabel baru -> header kolom lama tidak berlaku lagi
             self.dates = None
@@ -264,6 +341,10 @@ class _RowBuilder:
         """Baris tanpa angka: judul seksi, induk akun, atau potongan label."""
         sec = _heading_section(text)
         if sec:
+            title = re.sub(r"\s+", " ", text.upper()).strip()
+            if title != getattr(self, "last_title", None):
+                self.cats = None  # tabel lain (judul beda) -> kategori kolektibilitas tidak berlaku
+            self.last_title = title
             self.heading(sec)
             return
         label = strip_leading_enumerators(text)
@@ -279,9 +360,18 @@ class _RowBuilder:
     def add(self, label, values, token=None):
         label = strip_leading_enumerators(label).strip(" .:")
         # label terpotong: 'Keuntungan (kerugian) dari ...' + baris berikut 'nilai wajar ... 1.234'
+        values = list(values)
+        width = max(len(self.dates or []), len(self.ents or []))
+        if width and len(values) == width + 1 and values[0] in (1.0, 2.0, 3.0) \
+                and re.search(r"\b(CET|AT|Tier|Level|Kelompok|Group)$", label.strip(), re.I):
+            label, values = f"{label.strip()} {int(values[0])}", values[1:]  # 'CET 1' bagian dari nama akun
+        values = self._merge_split_digit(values)
         if self.pending:
             p_token, p_label = self.pending
-            if not token and not self.pending_closed and _is_continuation(p_label, label):
+            if not token and not re.search(r"[A-Za-z]{2,}", label):
+                # label panjang di baris sendiri, angkanya di baris berikut (tanpa label)
+                label, token = p_label, p_token
+            elif not token and not self.pending_closed and _is_continuation(p_label, label):
                 label = f"{p_label} {label}"
                 token = p_token
             else:
@@ -360,7 +450,7 @@ def _feed_text(builder: _RowBuilder, text: str):
         raw = raw.strip()
         if not raw:
             continue
-        if parse_date_header(raw) or parse_entity_header(raw) or parse_category_header(raw):
+        if parse_date_header(raw) or parse_year_header(raw) or parse_entity_header(raw) or parse_category_header(raw):
             lines.append(raw)
         else:
             lines.extend(split_segments(raw))
@@ -371,6 +461,9 @@ def _feed_text(builder: _RowBuilder, text: str):
         if not values:
             if label:
                 builder.text_only(label, token, ends_colon=line.rstrip().endswith(":"))
+            continue
+        if len(label) < 2 and len(values) >= 2 and builder.pending and not builder.pending_closed:
+            builder.add(label, values, token)  # angka milik label panjang di baris sebelumnya
             continue
         if len(label) < 2 or looks_like_period(label) or _DATE_WORDS.search(label) \
                 or re.fullmatch(r"[\d\s]*(Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\w*\.?", label, re.I):
@@ -664,6 +757,8 @@ def clean_ocr_text(text: str) -> str:
     for line in text.split("\n"):
         line = line.replace("|", " ").replace("¢", "").replace("—", "-").replace("–", "-")
         line = re.sub(r"[\]\}\[\{]+", " ", line)  # '44,027,008]' / '[Personnel' -> noise OCR
+        line = re.sub(r"(?<=[\d)])[/!'\"]+(?=\s|$)", " ", line)  # '(8,326,874)/' -> garis tabel terbaca '/'
+        line = re.sub(r"(\(\d[\d.,]*\d)\s*$", r"\1)", line)  # '(4,583,986' di ujung baris -> kurung tutup hilang
         line = re.sub(r"(\d[.,]) (\d{3})(?!\d)", r"\1\2", line)  # '1.379, 647' -> '1.379,647'
         # '27,981 308' -> '27,981,308' (pemisah ribuan terbaca spasi)
         line = re.sub(r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+) (\d{3})(?![\d.,])", r"\1,\2", line)
@@ -710,7 +805,11 @@ def parse_pdf(file_bytes: bytes, allow_ocr: bool = True):
     use_ocr = allow_ocr and ocr_available()
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for pno, page in enumerate(pdf.pages, start=1):
-            builder.set_page(pno)
+            try:
+                head = "\n".join((page.extract_text() or "").splitlines()[:3])
+            except Exception:  # pragma: no cover - halaman rusak
+                head = ""
+            builder.set_page(pno, head)
             page = _drop_ghost_spaces(page)
             blocks = _page_blocks(page)
             if use_ocr and sum(_count_numeric_lines(b) for b in blocks) < 3 and page.images:

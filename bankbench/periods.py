@@ -69,13 +69,17 @@ _DATE_IN_TEXT = re.compile(
 )
 
 
+_DATE_IN_TEXT_EN = re.compile(r"\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b")  # 'December 31, 2025'
+
+
 def detect_report_period(text: str):
     """Tebak periode laporan dari teks: tanggal akhir kuartal yang PALING BARU &
     sering muncul (mis. '30 September 2025'). Return (month, year) atau None."""
     if not text:
         return None
     counts = Counter()
-    for d, mon_name, yr in _DATE_IN_TEXT.findall(text):
+    found = list(_DATE_IN_TEXT.findall(text)) + [(d, m, y) for m, d, y in _DATE_IN_TEXT_EN.findall(text)]
+    for d, mon_name, yr in found:
         mon = MONTHS.get(mon_name.lower())
         if mon in QUARTER_END_DAY and int(d) in (30, 31):
             counts[(mon, int(yr))] += 1

@@ -46,18 +46,16 @@ class Recipe:
 # Kebiasaan analis yang terlihat di banyak bank (dipakai kalau pola angka tidak tersedia):
 # baris template -> akun laporan tambahan yang ikut dijumlahkan.
 SEED_CONVENTIONS = {
-    "BS": {
-        "aset lainnya": ["aset keuangan lainnya"],
-        "liabilitas lainnya": ["uang elektronik", "liabilitas kontrak asuransi"],
-        "tahun tahun lalu": ["dividen yang dibayarkan"],
-        "pinjaman yang diberikan dan piutang": ["piutang pembiayaan konsumen"],
-    },
-    "IS": {
-        "pendapatan lainnya": ["pendapatan asuransi"],
-        "beban lainnya": ["beban asuransi"],
-    },
+    "BS": {"aset lainnya": ["aset keuangan lainnya", "other financial assets", "other financial asset"],
+           "liabilitas lainnya": ["uang elektronik", "liabilitas kontrak asuransi", "electronic money",
+                                  "insurance contract liabilities"],
+           "tahun tahun lalu": ["dividen yang dibayarkan", "dividends paid", "dividend paid", "payable dividend"],
+           "pinjaman yang diberikan dan piutang": ["piutang pembiayaan konsumen", "finance receivables",
+                                                   "consumer financing receivables"],
+           "pendapatan kerugian komprehensif lainnya": ["loss"]},
+    "IS": {"pendapatan lainnya": ["pendapatan asuransi", "insurance services income", "insurance income"],
+           "beban lainnya": ["beban asuransi", "insurance services expense", "insurance expense"]},
 }
-
 FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang", "Turunan total")
 
 
@@ -294,7 +292,15 @@ class StrictMatcher(Matcher):
             return None, "pola tidak ketemu di laporan (akun baru / angka pembanding di-restate?)"
         scored.sort(key=lambda x: x[0], reverse=True)
         if len(scored) > 1 and scored[0][0] - scored[1][0] < 5:
-            return None, "beberapa kombinasi akun cocok dengan angka acuan — isi manual"
+            close = [c for sc, c in scored if scored[0][0] - sc < 5]
+            cur_sums = set()
+            for c in close:
+                vs = [self.cur_value(pool[i][0], tr.section) for i in c]
+                cur_sums.add(None if any(v is None for v in vs) else
+                             round(sum(sign_of.get(pool[i][0].idx, 1) * v for i, v in zip(c, vs))))
+            if len(cur_sums) != 1 or None in cur_sums:
+                return None, "beberapa kombinasi akun cocok dengan angka acuan — isi manual"
+            # semua kombinasi memberi angka periode berjalan yang sama (mis. induk & anak bernilai sama)
         parts = [(pool[i][0], sign_of.get(pool[i][0].idx, 1)) for i in scored[0][1]]
         parts.sort(key=lambda p: -self._support(tr, p[0]))
         return Recipe(parts, "sum", h), None
@@ -400,7 +406,7 @@ class StrictMatcher(Matcher):
             parts, vals = [sr], [v]
             conv = self.conventions.get(tr.section, {}).get(clean_label(tr.label), [])
             for extra in conv:
-                m = [s for s in self._cands(tr) if s.idx not in used and s is not sr
+                m = [s for s in self._cands(tr) if s.idx not in used and all(s is not p for p in parts)
                      and clean_label(s.label).startswith(clean_label(extra))]
                 if m:
                     ev = self._fb_value(tr, m[0])
@@ -489,15 +495,27 @@ class StrictMatcher(Matcher):
 
         t_aset, t_le = tpl(r"^total aset$"), tpl(r"^(jumlah|total) (kewajiban|liabilitas) dan (modal|ekuitas)$")
         t_liab = tpl(r"^total (liabilitas|kewajiban)$")
-        (s_aset, v_aset), (s_le, v_le) = rep(r"^total aset$"), rep(r"^(jumlah|total) (liabilitas|kewajiban) dan (ekuitas|modal)$")
-        s_liab, _ = rep(r"^(jumlah|total) (liabilitas|kewajiban)$")
+        (s_aset, v_aset) = rep(r"^(total|jumlah) (aset|assets?|aktiva)$")
+        (s_le, v_le) = rep(r"^(jumlah|total) (liabilitas|kewajiban|liabilities) (dan|and) (ekuitas|modal|equity|equities)$")
+        s_liab, _ = rep(r"^(jumlah|total) (liabilitas|kewajiban|liabilities|liability)$")
         if not t_aset or not s_aset:
             return
 
-        def side_src(x):
+        def side_pos(x):
             if x.idx < s_aset.idx:
                 return "A"
             return "L" if s_liab and x.idx < s_liab.idx else "E"
+
+        side_cache = {}
+
+        def side_src(x):
+            """Sisi akun: dari baris template yang namanya paling mirip (tabel aset & liabilitas bisa
+            berdampingan di satu halaman), kalau tidak ada yang mirip -> dari posisinya di laporan."""
+            if x.idx not in side_cache:
+                best = max(((self._support(r, x), r) for r in bs_rows if r.row not in self._formula_rows),
+                           key=lambda p: p[0], default=(0, None))
+                side_cache[x.idx] = side_tpl(best[1]) if best[0] >= 85 else side_pos(x)
+            return side_cache[x.idx]
 
         def side_tpl(r):
             if r.row < t_aset.row:
@@ -532,7 +550,7 @@ class StrictMatcher(Matcher):
             pick = None
             for k in range(len(cand), 0, -1):
                 for combo in combinations(cand, k):
-                    if abs(sum(v for _, v in combo) - diff) <= max(1.0, 0.5 * k):
+                    if abs(sum(v for _, v in combo) - diff) <= 3 + k:  # pembulatan juta rupiah di laporan
                         pick = combo
                         break
                 if pick:
@@ -614,6 +632,7 @@ class StrictMatcher(Matcher):
         expense_row = {r.row for r in is_rows if re.match(r"\s*beban", r.label, re.I)}
         parents = {clean_label(x.parent) for x in src if x.parent}
         start = min(x.idx for x in src) - 1
+        lo_row = 0  # baris template awal blok yang sedang dicek
 
         def values_now():
             vals = {}
@@ -624,18 +643,30 @@ class StrictMatcher(Matcher):
             return vals
 
         for total_pat, plus_row, minus_row in blocks:
-            chk = next((c for c in reconcile(self, values_now())
+            checks = reconcile(self, values_now())
+            chk = next((c for c in checks
                         if c["Seksi"] == "IS" and re.match(total_pat, clean_label(c["Total (template)"]))), None)
             if chk is None:
                 continue
+            if total_pat.startswith("^total laba komprehensif"):
+                # penghasilan komprehensif lain: hanya akun SETELAH laba bersih (bukan pajak dsb.)
+                net = next((c for c in checks if c["Seksi"] == "IS" and c["Status"] != "BEDA"
+                            and re.match(r"^laba rugi (periode|tahun) berjalan setelah pajak", clean_label(c["Total (template)"]))),
+                           None)
+                if net is None:
+                    continue
+                start = max(start, net["_src_idx"])
+                lo_row = max(lo_row, net["Baris"])
             end = chk["_src_idx"]
             diff = chk["Di laporan"] - chk["Hasil hitung"]
             if chk["Status"] != "BEDA" or abs(diff) <= 5:
                 start = end
+                lo_row = chk["Baris"]
                 continue
             pool = []
             for x in src:
-                if not (start < x.idx < end) or x.idx in used or not x.values or _is_total(x.label) \
+                if not (start < x.idx < end) or x.idx in used or not x.values \
+                        or (_is_total(x.label) and not _is_subtotalish(x.label)) or _is_grand_total(x.label) \
                         or clean_label(x.label) in parents:
                     continue
                 v = self.cur_value(x, "IS")
@@ -643,21 +674,53 @@ class StrictMatcher(Matcher):
                     pool.append((x, v))
             pool = sorted(pool, key=lambda p: -abs(p[1]))[:14]
             pick = None
-            for k in range(1, min(3, len(pool)) + 1):
+            for k in range(1, min(4, len(pool)) + 1):
+                hits = []
                 for combo in combinations(pool, k):
                     tot = sum(v for _, v in combo)
                     for sg in (1, -1):  # beban kadang ditulis positif di laporan
-                        if abs(sg * tot - diff) <= max(1.0, 0.5 * k):
-                            pick = (combo, sg)
-                            break
-                    if pick:
-                        break
-                if pick:
+                        if abs(sg * tot - diff) <= 3 + k:
+                            hits.append((sum(_is_subtotalish(x.label) for x, _ in combo), sg != 1, combo, sg))
+                if hits:
+                    hits.sort(key=lambda h: (h[0], h[1]))  # utamakan akun rinci (bukan subtotal) & tanda asli
+                    pick = (hits[0][2], hits[0][3])
                     break
             start = end
             if not pick:
+                lo_row = chk["Baris"]
                 continue
             combo, sg = pick
+            # akun yang punya baris template kosong bernama mirip di blok yang sama -> isi baris itu
+            blank = [r for r in is_rows if lo_row < r.row < chk["Baris"] and r.row not in self._formula_rows
+                     and self._row_terms(r.row, recipes, out) is None]
+            placed_all = True
+            for x, v in combo:
+                cand = max(((max(self._support(r, x), similarity(r.label, x.label)), r) for r in blank),
+                           key=lambda p: p[0], default=(0, None))
+                if cand[0] < 70:
+                    placed_all = False
+                    break
+            if placed_all and len(combo) >= 1:
+                saved_rows = {}
+                for x, v in combo:
+                    r = max(blank, key=lambda rr: max(self._support(rr, x), similarity(rr.label, x.label)))
+                    val = (-1 if r.row in expense_row else 1) * sg * v
+                    saved_rows[r.row] = out.get(r.row)
+                    out[r.row] = {"value": val, "vals": [val], "formula": None, "src": x, "method": "Penyeimbang",
+                                  "score": 70.0, "why": f"akun '{x.label}' tidak ada di pola acuan; dimasukkan ke baris "
+                                                        "bernama mirip supaya total Laba Rugi = laporan"}
+                    blank = [b for b in blank if b.row != r.row]
+                after = next((c["Hasil hitung"] for c in reconcile(self, values_now()) if c["Baris"] == chk["Baris"]),
+                             None)
+                if after is not None and abs(after - chk["Hasil hitung"] - diff) <= 3 + len(combo):
+                    used.update(x.idx for x, _ in combo)
+                    lo_row = chk["Baris"]
+                    continue
+                for rr, old in saved_rows.items():
+                    if old is None:
+                        out.pop(rr, None)
+                    else:
+                        out[rr] = old
             target = plus_row if diff > 0 else minus_row
             if target is None or target.row in self._formula_rows:
                 continue
@@ -678,13 +741,14 @@ class StrictMatcher(Matcher):
                 + " supaya total Laba Rugi = laporan"
             out[target.row] = fb
             after = next((c["Hasil hitung"] for c in reconcile(self, values_now()) if c["Baris"] == chk["Baris"]), None)
-            if after is None or abs(after - before - diff) > 1:
+            if after is None or abs(after - before - diff) > 3 + len(combo):
                 if saved:
                     out[target.row] = saved
                 else:
                     del out[target.row]
                 continue
             used.update(x.idx for x, _ in combo)
+            lo_row = chk["Baris"]
 
     def _derive_from_totals(self, recipes, out):
         """Akun yang wajib diisi tapi angkanya tidak terbaca (mis. OCR) dihitung dari total laporan:
@@ -886,8 +950,9 @@ class StrictMatcher(Matcher):
                     if meta[k][0] != ref_per:
                         continue
                     ent = meta[k][1]
-                    cur = [i for i, (p, e) in enumerate(meta) if p == self.period and e == ent]
-                    ci = cur[0] if cur else None
+                    cur = [i for i, (p, e) in enumerate(meta) if p == self.period and e == ent] or \
+                        [i for i, (p, e) in enumerate(meta) if p == self.period]  # label entitas header basi
+                    ci = cur[0] if len(cur) >= 1 else None
                 else:
                     ci = k - 1 if k % 2 == 1 else None  # pasangan [kini, lalu]
                 if ci is not None and ci < len(s.values):
@@ -899,6 +964,17 @@ class StrictMatcher(Matcher):
                 hits = ranked[:1]
             elif len({round(x[0].values[x[1]], 4) for x in hits}) == 1:
                 hits = ranked[:1]  # semua kandidat memberi angka yang sama
+        if not hits:
+            fb = self._ratio_by_name(tr, h, ref_per, pool, used)
+            if fb:
+                s, ci, rv = fb
+                used.add(s.idx)
+                res.value = s.values[ci]
+                res.source_idx, res.source_label = s.idx, s.label
+                res.method, res.score = "Nama akun", 80.0
+                res.note = (f"🟡 angka acuan {h:g} ({ref_label}) tidak ada persis (laporan: {rv:g}, kemungkinan "
+                            "di-restate); dikenali dari nama rasio — CEK")
+                return
         if len(hits) != 1:
             res.note = ("⚠ " + ("beberapa rasio cocok dengan angka acuan" if hits else
                                 f"angka acuan {h:g} ({ref_label}) tidak ditemukan di tabel rasio") + " — tidak diisi")
@@ -914,10 +990,45 @@ class StrictMatcher(Matcher):
             res.note = "🟡 koma desimal hilang di laporan (mis. OCR) → dibagi 100 — CEK"
         res.value = v
 
+    def _ratio_by_name(self, tr, h, ref_per, pool, used):
+        """Rasio tanpa pola angka: cari dari nama rasio, hanya kalau angka pembandingnya di laporan
+        beda tipis (±10%) dari template — kalau beda jauh, analis memakai definisi lain."""
+        kw = _ratio_keywords(tr.label)
+        if not kw or not h:
+            return None
+        cands = []
+        for s in pool:
+            if s.idx in used or _kw_score(kw, s) <= 0:
+                continue
+            meta = s.cols if (s.cols and len(s.cols) == len(s.values)) else None
+            if meta and any(p for p, _ in meta):
+                ri = [i for i, (p, _) in enumerate(meta) if p == ref_per]
+                ci = [i for i, (p, _) in enumerate(meta) if p == self.period]
+                if not ri or not ci:
+                    continue
+                ri, ci = ri[0], ci[0]
+            elif len(s.values) == 2:
+                ci, ri = 0, 1
+            else:
+                continue
+            rv = s.values[ri]
+            if rv and 0.9 <= rv / h <= 1.1:
+                cands.append((_kw_score(kw, s), s, ci, rv))
+        if not cands:
+            return None
+        cands.sort(key=lambda c: -c[0])
+        if len(cands) > 1 and cands[0][0] == cands[1][0] and cands[0][1].values[cands[0][2]] != \
+                cands[1][1].values[cands[1][2]]:
+            return None
+        _, s, ci, rv = cands[0]
+        return s, ci, rv
+
     def _npl_formula(self, tr, formula, ref_per, aq_rows, res):
         from .text import parse_number
 
-        m = re.match(r"^=\s*\(([^()]*)\)\s*/\s*([\d.]+)\s*$", formula.strip())
+        m = re.match(r"^=\s*\(([^()]*)\)\s*/\s*([\d.]+)\s*$", formula.strip()) or \
+            re.match(r"^=\s*([\d.]+)\s*/\s*([\d.]+)\s*$", formula.strip())  # satu komponen: '=30643981/1000'
+
         if not m:
             res.note = "⚠ rumus periode acuan tidak dikenali — tidak diisi"
             return

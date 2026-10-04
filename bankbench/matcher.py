@@ -22,6 +22,8 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
+from rapidfuzz import fuzz
+
 from .aliases import lookup
 from .template_model import SheetModel, is_ref_formula
 from .text import clean_label, similarity
@@ -305,10 +307,15 @@ class Matcher:
             if inherited:
                 return inherited
         names = lookup(self.aliases, tr.section, tr.label, tr.parent)
-        if not names or (clean_label(sr.label) not in names
-                         and clean_label(re.sub(r"\(.*?\)", " ", sr.label)) not in names):
+        if not names:
             return 0.0
-        if tr.parent and sr.parent and similarity(tr.parent, sr.parent) < 55:
+        sl = clean_label(sr.label)
+        if sl not in names and clean_label(re.sub(r"\(.*?\)", " ", sr.label)) not in names:
+            # salah ketik di laporan ('Comissions', 'foward', 'Deffered') -> kemiripan huruf, bukan subset kata
+            if not any(len(n) >= 12 and fuzz.ratio(sl, n) >= 92 for n in names):
+                return 0.0
+        if tr.parent and sr.parent and similarity(tr.parent, sr.parent) < 55 \
+                and clean_label(sr.parent) not in lookup(self.aliases, tr.section, tr.parent):
             # alias tanpa induk ('surat berharga') jangan nyasar ke anak 'Cadangan kerugian'
             specific = lookup({tr.section: {k: v for k, v in self.aliases.get(tr.section, {}).items() if " | " in k}},
                               tr.section, tr.label, tr.parent)
@@ -733,12 +740,12 @@ def reconcile(matcher: Matcher, values: dict):
         if not ok:
             # selisih persis = satu akun laporan -> biasanya beda klasifikasi
             same = [s for s in matcher.source if s.section == tr.section and matcher.current_value(s) is not None
-                    and abs(abs(matcher.current_value(s)) - abs(diff)) <= 1 and abs(diff) >= 1]
+                    and abs(abs(matcher.current_value(s)) - abs(diff)) <= 3 and abs(diff) >= 1]
             if same:
                 info = f"selisih = '{same[0].label}' (cek klasifikasi)"
                 sv = abs(matcher.current_value(same[0]))
                 placed = [rr for rr, vv in values.items() if vv is not None and rows_by_num.get(rr)
-                          and rows_by_num[rr].section == tr.section and abs(abs(vv) - sv) <= 1]
+                          and rows_by_num[rr].section == tr.section and abs(abs(vv) - sv) <= 3]
                 if placed:
                     # akun itu sudah ada di template, hanya beda pengelompokan (mis. minority interest
                     # di Ekuitas template vs di Liabilitas laporan) -> bukan kesalahan isi
