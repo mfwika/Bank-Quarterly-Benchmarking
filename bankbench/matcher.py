@@ -710,7 +710,16 @@ def reconcile(matcher: Matcher, values: dict):
         cands = matcher.label_candidates(tr)
         if not cands:
             continue
-        exact = [sr for _, sr in cands if matcher.current_value(sr) is not None
+        # nama persis sama selalu didahulukan ('Pendapatan bunga bersih' bukan 'Pendapatan bunga')
+        same_name = [(sc, sr) for sc, sr in cands if clean_label(sr.label) == clean_label(tr.label)]
+        if same_name:
+            cands = same_name + [c for c in cands if c not in same_name]
+        else:
+            # kandidat yang namanya lebih pendek dari total (subset kata) jangan didahulukan
+            cands.sort(key=lambda c: (-(len(clean_label(c[1].label).split()) >= len(clean_label(tr.label).split()) - 1),
+                                      -c[0]))
+        pool = same_name or cands  # label kembar ('TOTAL LABA TAHUN BERJALAN' 2x) -> pilih yang angkanya cocok
+        exact = [sr for _, sr in pool if matcher.current_value(sr) is not None
                  and abs(abs(v) - abs(matcher.current_value(sr))) <= 5]
         best_sr = exact[0] if exact else cands[0][1]
         m = (None, best_sr)
@@ -720,12 +729,21 @@ def reconcile(matcher: Matcher, values: dict):
         diff = abs(v) - abs(src)
         ok = abs(diff) <= 5  # toleransi pembulatan (juta rupiah)
         info = ""
+        status = "OK" if ok else "BEDA"
         if not ok:
             # selisih persis = satu akun laporan -> biasanya beda klasifikasi
             same = [s for s in matcher.source if s.section == tr.section and matcher.current_value(s) is not None
                     and abs(abs(matcher.current_value(s)) - abs(diff)) <= 1 and abs(diff) >= 1]
             if same:
                 info = f"selisih = '{same[0].label}' (cek klasifikasi)"
+                sv = abs(matcher.current_value(same[0]))
+                placed = [rr for rr, vv in values.items() if vv is not None and rows_by_num.get(rr)
+                          and rows_by_num[rr].section == tr.section and abs(abs(vv) - sv) <= 1]
+                if placed:
+                    # akun itu sudah ada di template, hanya beda pengelompokan (mis. minority interest
+                    # di Ekuitas template vs di Liabilitas laporan) -> bukan kesalahan isi
+                    info = f"'{same[0].label}' ada di baris {placed[0]} template (beda pengelompokan, angka sudah benar)"
+                    status = "KLASIFIKASI"
         checks.append({
             "Seksi": tr.section,
             "Baris": r,
@@ -734,8 +752,9 @@ def reconcile(matcher: Matcher, values: dict):
             "Di laporan": src,
             "Akun laporan": m[1].label,
             "Selisih": diff,
-            "Status": "OK" if ok else "BEDA",
+            "Status": status,
             "Keterangan": info,
+            "_src_idx": best_sr.idx,
         })
     # neraca harus seimbang
     ta = next((r for r in model.rows if r.section == "BS" and clean_label(r.label) == "total aset"), None)

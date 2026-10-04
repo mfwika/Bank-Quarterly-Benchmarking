@@ -29,6 +29,12 @@ Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
         di laporan (sebelum TOTAL ASET = aset, sebelum TOTAL LIABILITAS = liabilitas, sesudahnya =
         ekuitas). Kombinasi akun yang jumlahnya persis menutup selisih TOTAL ASET / JUMLAH LIABILITAS
         DAN EKUITAS dimasukkan ke baris template yang namanya cocok, atau ke Aset/Liabilitas/Ekuitas lainnya.
+     4. *Penyeimbang Laba Rugi* — akun baru di laporan (mis. "Pendapatan Asuransi - Neto") yang persis
+        menutup selisih LABA OPERASIONAL / NON OPERASIONAL / TOTAL LABA KOMPREHENSIF dimasukkan ke
+        Pendapatan/Beban lainnya (atau "Lainnya" di penghasilan komprehensif).
+     5. *Turunan total* — kalau angka satu akun tidak terbaca (mis. OCR), nilainya dihitung dari total
+        laporan (mis. Beban bunga = Pendapatan bunga − Pendapatan bunga bersih), dicek wajar vs periode lalu.
+     Rasio yang koma desimalnya hilang (mis. OCR "446" untuk 4,46) disesuaikan ke skala periode acuan.
      Ini berlaku saat kolom acuan kosong (mis. Dec 25 belum diisi) atau angka pembanding di-restate.
      Yang tetap tidak dikenali → dikosongkan & ditandai ⚠.
    - Baris yang kosong di periode acuan tidak diisi, kecuali akun barunya diperlukan supaya Neraca
@@ -45,7 +51,8 @@ Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
    (`mappings.json` → `_recipes`), jadi akun yang sempat bernilai 0 di periode acuan tetap ikut.
 6. **Validasi**: total template (TOTAL ASET, LABA OPERASIONAL, Modal Inti, …) dihitung ulang
    dan dibandingkan dengan laporan + cek Aset = Liabilitas + Ekuitas; selisih yang persis sama
-   dengan satu akun laporan diberi keterangan (akun baru / beda klasifikasi).
+   dengan satu akun laporan diberi keterangan. Status **KLASIFIKASI** = angkanya sudah benar, hanya
+   dikelompokkan berbeda (mis. minority interest di Ekuitas template, di Liabilitas laporan).
 7. **Menulis**: kolom periode diisi atau **ditambah**; format & semua formula (rasio turunan,
    ANNUALIZER, tanggal periode) ikut diperpanjang.
 

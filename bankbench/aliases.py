@@ -46,6 +46,10 @@ SEED_ALIASES = {
         "jumlah kewajiban dan modal": ["total liabilitas dan ekuitas", "jumlah liabilitas dan ekuitas"],
     },
     "IS": {
+        "laba rugi periode berjalan setelah pajak bersih": ["laba rugi bersih tahun berjalan", "laba bersih tahun berjalan",
+                                                            "laba rugi tahun berjalan setelah pajak", "laba rugi bersih periode berjalan"],
+        "total laba komprehensif tahun berjalan": ["total laba rugi komprehensif tahun berjalan",
+                                                   "total laba rugi komprehensif periode berjalan"],
         "peningkatan nilai wajar aset keuangan mark to market": [
             "keuntungan kerugian dari peningkatan penurunan nilai wajar aset keuangan"],
         "penurunan nilai wajar kewajiban keuangan mark to market": [
@@ -138,6 +142,15 @@ ENGLISH_ALIASES = {
     },
     "IS": {
         "pendapatan bunga": ["interest income"],
+        "pendapatan bunga bersih": ["net interest income"],
+        "laba operasional": ["net operating income expenses", "operating income", "operating profit"],
+        "laba rugi non operasional": ["net non operating income expenses", "non operating income expenses"],
+        "laba rugi periode berjalan sebelum pajak": ["income before tax", "profit before tax",
+                                                     "net profit loss before tax"],
+        "laba rugi periode berjalan setelah pajak bersih": ["net profit loss for the current period",
+                                                            "net income for the current period", "net profit loss"],
+        "total laba komprehensif tahun berjalan": ["total current comprehensive profit",
+                                                   "total comprehensive income for the current period"],
         "beban bunga": ["interest expense", "interest expenses"],
         "peningkatan nilai wajar aset keuangan mark to market": [
             "gain loss from increase decrease in fair value of financial assets"],

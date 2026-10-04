@@ -58,7 +58,7 @@ SEED_CONVENTIONS = {
     },
 }
 
-FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang")
+FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang", "Turunan total")
 
 
 class StrictMatcher(Matcher):
@@ -99,11 +99,35 @@ class StrictMatcher(Matcher):
             return hits[0] if hits else None
         n = len(sr.values)
         if n == 4:
+            if self._date_major(sr.section):  # [kini IND, kini KONS, lalu IND, lalu KONS]
+                return (0 if entity == "IND" else 1) + (0 if role == "cur" else 2)
             base = 0 if entity == "IND" else 2
             return base + (0 if role == "cur" else 1)
         if n == 2:
             return 0 if role == "cur" else 1
         return None
+
+    def _date_major(self, section):
+        """Tabel tanpa header terbaca (mis. OCR): urutan kolom ditebak dengan mencocokkan angka ke
+        Neraca Konsolidasian periode berjalan (mis. 'Laba tahun berjalan' muncul di Neraca & KPMM)."""
+        cache = self.__dict__.setdefault("_date_major_cache", {})
+        if section in cache:
+            return cache[section]
+        cache[section] = False
+        if section == "BS":
+            return False
+        bs = set()
+        for x in self.source_all:
+            if x.section == "BS":
+                v = self.cur_value(x, "BS")
+                if v is not None and abs(v) >= 1000:
+                    bs.add(round(abs(v)))
+        rows = [x for x in self.source_all if x.section == section and len(x.values) == 4
+                and not (self._col_meta(x) and any(p for p, _ in self._col_meta(x)))]
+        hit1 = sum(1 for x in rows if round(abs(x.values[1])) in bs)
+        hit2 = sum(1 for x in rows if round(abs(x.values[2])) in bs)
+        cache[section] = hit1 >= 2 and hit1 > hit2
+        return cache[section]
 
     def cur_value(self, sr, section=None):
         sec = section or sr.section
@@ -351,7 +375,7 @@ class StrictMatcher(Matcher):
         pairs = []
         for tr in todo:
             for sr in self._cands(tr):
-                if sr.idx in used or not sr.values or _is_total(sr.label):
+                if sr.idx in used or not sr.values or _is_total(sr.label) or _ocr_partial(sr):
                     continue
                 base = self._support(tr, sr)
                 if base < 80:
@@ -396,7 +420,7 @@ class StrictMatcher(Matcher):
             if tr.row in out:
                 continue
             kids = [s for s in self._cands(tr) if s.idx not in used and s.parent and s.values
-                    and self._is_parent_name(tr, s.parent)]
+                    and not _ocr_partial(s) and self._is_parent_name(tr, s.parent)]
             if 2 <= len(kids) <= 4:
                 vals = value_of(tr, kids)
                 if vals is not None:
@@ -407,6 +431,9 @@ class StrictMatcher(Matcher):
 
         # 3) penyeimbang Neraca: akun baru yang menutup selisih total -> dimasukkan ke sisi yang benar
         self._balance_repair(recipes, out, used)
+        self._income_repair(recipes, out, used)
+        self._derive_from_totals(recipes, out)
+        self._income_repair(recipes, out, used)  # selisih yang baru kelihatan setelah akun diturunkan
         return out
 
     def _is_parent_name(self, tr, parent_label):
@@ -550,6 +577,166 @@ class StrictMatcher(Matcher):
                 out[r.row] = fb
                 filled.add(r.row)
                 used.add(x.idx)
+
+    def _row_terms(self, row, recipes, out):
+        if row in out:
+            return list(out[row].get("vals") or [out[row]["value"]])
+        rec = recipes.get(row)
+        if rec:
+            tr = next(r for r in self.model.rows if r.row == row)
+            vs = [self.cur_value(x, tr.section) for x, _ in rec.parts]
+            if all(v is not None for v in vs):
+                return [sg * v for (_, sg), v in zip(rec.parts, vs)]
+        return None
+
+    def _income_repair(self, recipes, out, used):
+        """Laba Rugi: akun laporan yang belum terpakai (mis. 'Pendapatan Asuransi - Neto' yang baru
+        muncul) dan persis menutup selisih total template vs laporan dimasukkan ke pos 'lainnya'
+        di blok yang sama (operasional / non operasional / penghasilan komprehensif lain)."""
+        from itertools import combinations
+
+        from .matcher import reconcile
+
+        is_rows = [r for r in self.model.rows if r.section == "IS"]
+        src = [x for x in self.source if x.section == "IS"]
+        if not is_rows or not src:
+            return
+
+        def tpl(pat, after=0):
+            return next((r for r in is_rows if r.row > after and re.match(pat, clean_label(r.label))), None)
+
+        after_tax = tpl(r"^laba rugi (periode|tahun) berjalan setelah pajak")
+        oci_other = tpl(r"^lainnya$", after_tax.row) if after_tax else None
+        blocks = [(r"^laba operasional$", tpl(r"^pendapatan lainnya$"), tpl(r"^beban lainnya$")),
+                  (r"^laba rugi non operasional$", tpl(r"^pendapatan beban non operasional lainnya$"),
+                   tpl(r"^pendapatan beban non operasional lainnya$")),
+                  (r"^total laba komprehensif tahun berjalan$", oci_other, oci_other)]
+        expense_row = {r.row for r in is_rows if re.match(r"\s*beban", r.label, re.I)}
+        parents = {clean_label(x.parent) for x in src if x.parent}
+        start = min(x.idx for x in src) - 1
+
+        def values_now():
+            vals = {}
+            for r in self.model.rows:
+                t = self._row_terms(r.row, recipes, out)
+                if t is not None:
+                    vals[r.row] = sum(t)
+            return vals
+
+        for total_pat, plus_row, minus_row in blocks:
+            chk = next((c for c in reconcile(self, values_now())
+                        if c["Seksi"] == "IS" and re.match(total_pat, clean_label(c["Total (template)"]))), None)
+            if chk is None:
+                continue
+            end = chk["_src_idx"]
+            diff = chk["Di laporan"] - chk["Hasil hitung"]
+            if chk["Status"] != "BEDA" or abs(diff) <= 5:
+                start = end
+                continue
+            pool = []
+            for x in src:
+                if not (start < x.idx < end) or x.idx in used or not x.values or _is_total(x.label) \
+                        or clean_label(x.label) in parents:
+                    continue
+                v = self.cur_value(x, "IS")
+                if v is not None and abs(v) >= 0.5:
+                    pool.append((x, v))
+            pool = sorted(pool, key=lambda p: -abs(p[1]))[:14]
+            pick = None
+            for k in range(1, min(3, len(pool)) + 1):
+                for combo in combinations(pool, k):
+                    tot = sum(v for _, v in combo)
+                    for sg in (1, -1):  # beban kadang ditulis positif di laporan
+                        if abs(sg * tot - diff) <= max(1.0, 0.5 * k):
+                            pick = (combo, sg)
+                            break
+                    if pick:
+                        break
+                if pick:
+                    break
+            start = end
+            if not pick:
+                continue
+            combo, sg = pick
+            target = plus_row if diff > 0 else minus_row
+            if target is None or target.row in self._formula_rows:
+                continue
+            flip = -1 if target.row in expense_row else 1
+            parts = [flip * sg * v for _, v in combo]
+            base = self._row_terms(target.row, recipes, out) or []
+            before = chk["Hasil hitung"]
+            saved = out.get(target.row)
+            fb = dict(saved) if saved else {"src": combo[0][0], "method": "Penyeimbang", "score": 70.0,
+                                            "why": "sesuai pola" if target.row in recipes else "pola angka tidak tersedia"}
+            new_vals = base + parts
+            fb.update({"value": sum(new_vals), "vals": new_vals,
+                       "formula": "=" + "".join(f"{t:.0f}" if i == 0 else (f"+{t:.0f}" if t >= 0 else f"{t:.0f}")
+                                                for i, t in enumerate(new_vals))})
+            if fb["method"] not in ("Nama akun", "Memori pola"):
+                fb["method"] = "Penyeimbang"
+            fb["why"] = fb["why"] + "; ditambah akun baru " + " + ".join(f"'{x.label}'" for x, _ in combo) \
+                + " supaya total Laba Rugi = laporan"
+            out[target.row] = fb
+            after = next((c["Hasil hitung"] for c in reconcile(self, values_now()) if c["Baris"] == chk["Baris"]), None)
+            if after is None or abs(after - before - diff) > 1:
+                if saved:
+                    out[target.row] = saved
+                else:
+                    del out[target.row]
+                continue
+            used.update(x.idx for x, _ in combo)
+
+    def _derive_from_totals(self, recipes, out):
+        """Akun yang wajib diisi tapi angkanya tidak terbaca (mis. OCR) dihitung dari total laporan:
+        kalau tepat SATU akun kosong di dalam rumus total yang berbeda, nilainya = selisihnya
+        (mis. Beban bunga = Pendapatan bunga - Pendapatan bunga bersih)."""
+        from .matcher import evaluate_column, reconcile
+
+        def values_now():
+            vals = {}
+            for r in self.model.rows:
+                t = self._row_terms(r.row, recipes, out)
+                if t is not None:
+                    vals[r.row] = sum(t)
+            return vals
+
+        def should(tr):
+            col = self.ref_cols.get(tr.section)
+            if self._ref_usable(tr.section):
+                return col is not None and tr.numeric(col) is not None
+            return self.usually_filled(tr)
+
+        for _ in range(8):
+            vals = values_now()
+            bad = sorted((c for c in reconcile(self, vals) if c["Status"] == "BEDA" and c["Seksi"] in ("IS", "BS")
+                          and not c["Total (template)"].startswith("Aset =")), key=lambda c: c["Baris"])
+            changed = False
+            for c in bad:
+                blanks = [tr for tr in self._value_rows if tr.section == c["Seksi"] and tr.row not in vals
+                          and tr.row not in self._formula_rows and should(tr)]
+                coef = {}
+                base = evaluate_column(self.model, self.target_col, self.ref_col, vals).get(c["Baris"])
+                for tr in blanks:
+                    t = evaluate_column(self.model, self.target_col, self.ref_col, {**vals, tr.row: 1.0}).get(c["Baris"])
+                    if base is not None and t is not None and abs(abs(t - base) - 1) < 1e-6:
+                        coef[tr.row] = t - base
+                if len(coef) != 1:
+                    continue
+                row, k = next(iter(coef.items()))
+                tr = next(r for r in self.model.rows if r.row == row)
+                v = (c["Di laporan"] - c["Hasil hitung"]) / k
+                last = self.last_value(tr)
+                if last and (v / last <= 0 or not 0.1 <= abs(v / last) <= 10):
+                    continue  # hasil tidak wajar -> biarkan kosong
+                out[row] = {"value": v, "vals": [v], "formula": None, "src": next(
+                    (x for x in self.source if x.idx == c.get("_src_idx")), self.source[0]),
+                    "method": "Turunan total", "score": 60.0,
+                    "why": f"angka akun tidak terbaca di laporan; dihitung dari total '{c['Akun laporan']}' "
+                           f"supaya {c['Total (template)']} = laporan"}
+                changed = True
+                break
+            if not changed:
+                break
 
     def _pos_bonus(self, tr, sr):
         return 6 * max(0.0, 1 - abs(self._tpl_pos(tr) - self._src_pos.get(sr.idx, 0.5)) / 0.25)
@@ -718,9 +905,14 @@ class StrictMatcher(Matcher):
             return
         s, ci = hits[0]
         used.add(s.idx)
-        res.value = s.values[ci]
+        v = s.values[ci]
         res.source_idx, res.source_label = s.idx, s.label
         res.method, res.score = "Pola angka", 100.0
+        if h and abs(v) > 20 * abs(h) and 0.2 <= abs(v / 100 / h) <= 5:
+            # '4,46' terbaca '446' (koma desimal hilang, biasanya OCR) -> skala rasio periode acuan
+            v = v / 100
+            res.note = "🟡 koma desimal hilang di laporan (mis. OCR) → dibagi 100 — CEK"
+        res.value = v
 
     def _npl_formula(self, tr, formula, ref_per, aq_rows, res):
         from .text import parse_number
@@ -857,6 +1049,12 @@ def _in_kredit(sr) -> bool:
 
 def _is_subtotalish(label: str) -> bool:
     return bool(re.search(r"(,.*\bdan\b.*(neto|bersih))|^pendapatan \(beban\)", label or "", re.I))
+
+
+def _ocr_partial(sr) -> bool:
+    """Baris OCR yang sebagian angkanya hilang: tanpa konfirmasi pola angka, posisi kolomnya
+    (Individual / Konsolidasian) tidak bisa dipastikan -> jangan dipakai untuk tebakan nama akun."""
+    return bool(getattr(sr, "ocr", False) and sr.cols and len(sr.values) < len(sr.cols))
 
 
 def _is_grand_total(label: str) -> bool:

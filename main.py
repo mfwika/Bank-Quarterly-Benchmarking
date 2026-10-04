@@ -429,16 +429,20 @@ for tab, fk in zip(tabs, order):
                    if v is not None and not pd.isna(v) and df.at[r, "Tipe"] != "Formula"}
         checks = reconcile(matcher, numeric)
         if checks:
-            chk = pd.DataFrame(checks)
+            chk = pd.DataFrame(checks).drop(columns=["_src_idx"], errors="ignore")
             bad = int((chk["Status"] == "BEDA").sum())
-            with st.expander(f"✅ Cek total vs laporan — {len(chk) - bad} cocok, {bad} beda", expanded=bad > 0):
+            kls = int((chk["Status"] == "KLASIFIKASI").sum())
+            with st.expander(f"{'⚠️' if bad else '✅'} Cek total vs laporan — {len(chk) - bad - kls} cocok"
+                             + (f", {kls} beda pengelompokan saja" if kls else "") + f", {bad} beda",
+                             expanded=bad > 0):
                 show = chk.copy()
                 for col in ("Hasil hitung", "Di laporan", "Selisih"):
                     show[col] = show[col].map(fmt_num)
                 st.dataframe(show, width="stretch", hide_index=True)
                 st.caption("Total dihitung dari formula template memakai angka yang akan diisi, lalu dibandingkan dengan "
                            "total di laporan. 'BEDA' biasanya karena akun yang kosong di periode acuan (akun baru), "
-                           "angka di-restate, atau beda klasifikasi — lihat Keterangan.")
+                           "angka di-restate, atau beda klasifikasi — lihat Keterangan. 'KLASIFIKASI' = angkanya sudah "
+                           "benar, hanya dikelompokkan berbeda dari laporan (mis. minority interest di Ekuitas template).")
 
 # ---------------------------------------------------------------------------------
 # STEP 5: generate
