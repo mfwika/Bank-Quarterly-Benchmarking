@@ -44,6 +44,7 @@ class SourceRow:
     ocr: bool = False  # hasil OCR (angka perlu dicek lebih teliti)
     cats: list | None = None  # kolektibilitas per kolom (L/DPK/KL/D/M/JUMLAH) di tabel kualitas aset
     ancestors: list | None = None  # semua induk (paling luar dulu)
+    company: str | None = None  # 'PT Bank X ...' di judul tabelnya (laporan grup induk di halaman yang sama)
 
     def value_at(self, i):
         return self.values[i] if 0 <= i < len(self.values) else None
@@ -58,7 +59,7 @@ def _heading_section(text: str):
     if not titled and sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
         return None
     u = text.upper()
-    if re.search(r"\bUUS\b|UNIT USAHA SYARIAH", u):
+    if re.search(r"\bUUS\b|UNIT USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", u):
         return "OTHER"  # laporan Unit Usaha Syariah: bukan laporan bank secara keseluruhan
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
@@ -152,6 +153,9 @@ def parse_entity_header(line: str):
             and len(_ENTITY_RE.findall(line)) >= 2:
         # 'NO KOMPONEN MODAL Individual Konsolidasian ...' -> judul kolom label di kiri diabaikan
         line = line[first.start():]
+    # 'BANK CIMB NIAGA CONSOLIDATED' -> nama bank di antara 'BANK' dan kolom berikutnya diabaikan
+    line = re.sub(r"\b(bank)\b((?:\s+(?!konsolidasi|consolidated|individu|bank\b)[A-Za-z]+){1,3})(?=\s+(konsolidasi|consolidated))",
+                  r"\1", line, flags=re.I)
     words = re.findall(r"[A-Za-z]+", line)
     hits = _ENTITY_RE.findall(line)
     if not hits or len(hits) < 0.6 * max(1, len([w for w in words if w.lower() not in ("dan", "and", "only")])):
@@ -298,8 +302,9 @@ class _RowBuilder:
 
     def set_page(self, page, head_text=""):
         self.page = page
+        self.company = None  # nama perusahaan di judul tabel berlaku sampai akhir halaman
         # halaman Unit Usaha Syariah (judul kecil di atas 'LAPORAN POSISI KEUANGAN') -> abaikan sehalaman
-        self.uus_page = bool(re.search(r"\bUUS\b|UNIT USAHA SYARIAH", head_text.upper()))
+        self.uus_page = bool(re.search(r"\bUUS\b|UNIT USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", head_text.upper()))
         if self.uus_page:
             self.heading("OTHER")
 
@@ -339,6 +344,8 @@ class _RowBuilder:
 
     def text_only(self, text, token=None, ends_colon=False):
         """Baris tanpa angka: judul seksi, induk akun, atau potongan label."""
+        if re.match(r"\W*PT\.?\s+BANK\s+\w", text, re.I) and len(text.split()) <= 12:
+            self.company = text.strip()
         sec = _heading_section(text)
         if sec:
             title = re.sub(r"\s+", " ", text.upper()).strip()
@@ -359,6 +366,11 @@ class _RowBuilder:
 
     def add(self, label, values, token=None):
         label = strip_leading_enumerators(label).strip(" .:")
+        if len(values) == 1 and values[0] in (1.0, 2.0, 3.0) \
+                and re.search(r"\b(CET|AT|Tier|Level|Kelompok|Group)$", label.strip(), re.I):
+            # 'Deduction Factor of Common Equity Tier 1' = judul kelompok, bukan angka
+            self.text_only(f"{label.strip()} {int(values[0])}", token)
+            return
         # label terpotong: 'Keuntungan (kerugian) dari ...' + baris berikut 'nilai wajar ... 1.234'
         values = list(values)
         width = max(len(self.dates or []), len(self.ents or []))
@@ -366,6 +378,10 @@ class _RowBuilder:
                 and re.search(r"\b(CET|AT|Tier|Level|Kelompok|Group)$", label.strip(), re.I):
             label, values = f"{label.strip()} {int(values[0])}", values[1:]  # 'CET 1' bagian dari nama akun
         values = self._merge_split_digit(values)
+        if self.ocr_used and width and len(values) > width:
+            nonzero = [v for v in values if v != 0]
+            if len(nonzero) == width:
+                values = nonzero  # '-' nyasar hasil OCR ('16.935.370 - 16.935.370') -> angka 0 palsu
         if self.pending:
             p_token, p_label = self.pending
             if not token and not re.search(r"[A-Za-z]{2,}", label):
@@ -384,6 +400,7 @@ class _RowBuilder:
         cols = _combine_header(self.dates, self.ents, len(values), self.cats)
         row = SourceRow(len(self.rows), label, list(values), self.section, parent, self.page, cols)
         row.ancestors = [lbl for _, lbl in self.stack if lbl != label]
+        row.company = getattr(self, "company", None)
         if self.cats and cols and len(cols) == len(self.cats):
             row.cats = list(self.cats)
         self.rows.append(row)
@@ -796,6 +813,106 @@ def _ocr_page_blocks(page, lang="ind+eng"):
     return texts
 
 
+def _is_vector_text_page(page) -> bool:
+    """Halaman koran yang hurufnya digambar sebagai vektor (tidak ada teks, ribuan kurva/kotak)."""
+    try:
+        return len(page.chars) < 20 and len(page.curves) + len(page.rects) > 500
+    except Exception:  # pragma: no cover
+        return False
+
+
+def _vector_page_regions(page):
+    """Bagi halaman jadi potongan per tabel memakai bar judul tabel (kotak berwarna):
+    potongan mulai sedikit di atas bar (judul tabel) sampai sebelum bar berikutnya yang menimpa
+    rentang x-nya. Urutan: per kolom (kiri->kanan), atas->bawah."""
+    W, H = page.width, page.height
+    # hanya bar selebar tabel (bar kecil = judul sub-kolom angka, bukan batas tabel)
+    bars = [(r["x0"], r["top"], r["x1"]) for r in page.rects if 150 < r["width"] < 0.6 * W and r["height"] < 40]
+    bars = [b for b in bars if not any(o != b and abs(o[1] - b[1]) < 3 and o[0] <= b[0] + 1 and o[2] >= b[2] - 1
+                                       and (o[2] - o[0]) > (b[2] - b[0]) + 2 for o in bars)]
+    if not bars:
+        return [(0, 0, W, H)]
+    # bar berdampingan di ketinggian sama (judul kolom angka satu tabel) -> satu bar
+    merged = []
+    for b in sorted(bars, key=lambda b: (round(b[1]), b[0])):
+        if merged and abs(merged[-1][1] - b[1]) < 3 and -1 <= b[0] - merged[-1][2] < 1.5:
+            merged[-1] = (merged[-1][0], merged[-1][1], max(merged[-1][2], b[2]))
+        else:
+            merged.append(b)
+    bars = merged
+    pad = 45
+    # kelompokkan bar per rentang x (satu kolom tabel)
+    clusters = []
+    for b in sorted(bars, key=lambda b: (b[1], b[0])):
+        for c in clusters:
+            if abs(c[0] - b[0]) < 15 and abs(c[1] - b[2]) < 15:
+                c[2].append(b[1])
+                break
+        else:
+            clusters.append([b[0], b[2], [b[1]]])
+
+    def overlap(c, d):
+        return min(c[1], d[1]) - max(c[0], d[0]) > 0.5 * min(c[1] - c[0], d[1] - d[0])
+
+    def internal(d, c):
+        """d = bar sub-kolom DI DALAM tabel c (lebih sempit, muncul setelah judul c)."""
+        return (d is not c and d[0] >= c[0] - 6 and d[1] <= c[1] + 6 and (d[1] - d[0]) < (c[1] - c[0]) - 10
+                and min(d[2]) > min(c[2]))
+
+    regions = []
+    for c in clusters:
+        if any(internal(c, h) for h in clusters):
+            continue
+        events = sorted([(t, id(c)) for t in c[2]] +
+                        [(t, id(d)) for d in clusters if d is not c and overlap(c, d) and not internal(d, c)
+                         for t in d[2]])
+        start = None
+        for k, (t, owner) in enumerate(events):
+            if owner == id(c) and start is None:
+                start = max(0, t - pad) if k == 0 or events[k - 1][1] != id(c) else t
+            elif owner != id(c) and start is not None and t > start:
+                regions.append((c[0], start, c[1], max(start + 1, t - pad)))
+                start = None
+        if start is not None:
+            regions.append((c[0], start, c[1], H))
+    regions = [r for r in regions if r[3] - r[1] >= 8]
+    cols = sorted({round(r[0] / 30) for r in regions})
+    return sorted(regions, key=lambda r: (cols.index(round(r[0] / 30)), r[1]))
+
+
+def _ocr_vector_page(page, lang="ind+eng", dpi=300):
+    """OCR halaman vektor: render sekali, binarisasi (teks putih di bar berwarna dibalik jadi hitam),
+    lalu OCR tiap potongan tabel."""
+    import numpy as np
+    import pytesseract
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    gray = np.array(page.to_image(resolution=dpi).original.convert("L")).astype(np.uint8)
+    sc = dpi / 72.0
+    out = np.where(gray < 200, 0, 255).astype(np.uint8)
+    for r in page.rects:
+        if r["width"] <= 20 or r["height"] <= 4:
+            continue
+        X0, T, X1, B = int(r["x0"] * sc), int(r["top"] * sc), int(r["x1"] * sc), int(r["bottom"] * sc)
+        reg = gray[T:B, X0:X1]
+        if reg.size and np.median(reg) < 200:
+            out[T:B, X0:X1] = np.where(reg > 200, 0, 255)
+    img = Image.fromarray(out)
+    texts = []
+    for x0, top, x1, bottom in _vector_page_regions(page):
+        box = (max(0, int(x0 * sc) - 8), max(0, int(top * sc)), min(img.size[0], int(x1 * sc) + 8),
+               min(img.size[1], int(bottom * sc)))
+        if box[2] - box[0] < 20 or box[3] - box[1] < 20:
+            continue
+        try:
+            txt = pytesseract.image_to_string(img.crop(box), lang=lang, config="--psm 6")
+        except pytesseract.TesseractError:
+            txt = pytesseract.image_to_string(img.crop(box), config="--psm 6")
+        texts.append(clean_ocr_text(txt))
+    return texts
+
+
 def parse_pdf(file_bytes: bytes, allow_ocr: bool = True):
     """-> (rows, full_text)"""
     import pdfplumber
@@ -812,7 +929,12 @@ def parse_pdf(file_bytes: bytes, allow_ocr: bool = True):
             builder.set_page(pno, head)
             page = _drop_ghost_spaces(page)
             blocks = _page_blocks(page)
-            if use_ocr and sum(_count_numeric_lines(b) for b in blocks) < 3 and page.images:
+            if use_ocr and sum(_count_numeric_lines(b) for b in blocks) < 3 and _is_vector_text_page(page):
+                ocr_blocks = _ocr_vector_page(page)
+                if sum(_count_numeric_lines(b) for b in ocr_blocks) >= 3:
+                    blocks = ocr_blocks
+                    builder.ocr_used = True
+            elif use_ocr and sum(_count_numeric_lines(b) for b in blocks) < 3 and page.images:
                 ocr_blocks = _ocr_page_blocks(page)
                 if sum(_count_numeric_lines(b) for b in ocr_blocks) >= 3:
                     blocks = ocr_blocks

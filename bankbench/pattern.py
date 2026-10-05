@@ -64,6 +64,7 @@ class StrictMatcher(Matcher):
 
     def __init__(self, model, source_rows, target_col, aliases, period, entity_by_section=None, recipe_hints=None,
                  fallback=True, conventions=None):
+        source_rows = _own_company_rows(model, source_rows)
         super().__init__(model, source_rows, target_col, aliases, period=period)
         self.fallback = fallback
         self.conventions = {sec: dict(d) for sec, d in SEED_CONVENTIONS.items()}
@@ -196,7 +197,7 @@ class StrictMatcher(Matcher):
                 continue
             r = self.ref_value(s, tr.section)
             if r is not None:
-                cands.append((s, r))
+                cands.append((s, -r if getattr(self, "_neg_flip", False) else r))
 
         # 0) memori resep (dipakai di periode sebelumnya): kalau jumlahnya tetap persis = h,
         #    pakai resep yang sama — termasuk akun yang di periode acuan kebetulan bernilai 0
@@ -231,7 +232,7 @@ class StrictMatcher(Matcher):
         # 2) jumlah 2-3 akun (tanpa baris total/subtotal), minimal satu yang namanya mirip
         # baris beban (positif di template): pos laporan '(beban) ... bersih' yang negatif ikut dihitung
         expense = h > 0 and bool(re.match(r"\s*(beban|kerugian)", tr.label, re.I))
-        sign_of = {s.idx: -1 for s, r in cands if expense and r < 0}
+        sign_of = {s.idx: -1 for s, r in cands if (expense and r < 0) or getattr(self, "_neg_flip", False)}
         # 'Pendapatan (beban) ... bersih' boleh jadi komponen (mis. asuransi keuangan), tapi dikenai penalti subtotal
         pool = [(s, abs(r) if expense else r) for s, r in cands
                 if r != 0 and (not _is_total(s.label) or _is_subtotalish(s.label)) and not _is_grand_total(s.label)
@@ -244,6 +245,12 @@ class StrictMatcher(Matcher):
             out = []
             for c in combos:
                 sups = [self._support(tr, pool[i][0]) for i in c]
+                parents = {clean_label(pool[i][0].parent or "") for i in c}
+                if max(sups) < 60 and len(parents) == 1 and "" not in parents and len(combos) == 1:
+                    # nama tidak mirip, tapi satu-satunya kombinasi & semua akun satu induk
+                    # (mis. 'Selisih penilaian kembali' = Gains + Losses di bawah 'Other comprehensive income')
+                    out.append((50.0 - 3 * len(c), c))
+                    continue
                 if max(sups) >= 60:
                     # utamakan kombinasi yang anggotanya bukan subtotal & lebih sedikit
                     pen = sum(8 for i in c if _is_subtotalish(pool[i][0].label))
@@ -289,6 +296,16 @@ class StrictMatcher(Matcher):
                     break
             scored = score(sorted(quads))
         if not scored:
+            if h < 0 and not getattr(self, "_neg_flip", False):
+                # template menyimpan pengurang sebagai negatif, laporan menulis positif (Faktor Pengurang)
+                self._neg_flip = True
+                try:
+                    rec, _ = self.find_recipe(tr, used)
+                finally:
+                    self._neg_flip = False
+                if rec and rec.kind == "sum":
+                    rec.notes = list(rec.notes) + ["pengurang ditulis positif di laporan -> tanda dibalik"]
+                    return rec, None
             return None, "pola tidak ketemu di laporan (akun baru / angka pembanding di-restate?)"
         scored.sort(key=lambda x: x[0], reverse=True)
         if len(scored) > 1 and scored[0][0] - scored[1][0] < 5:
@@ -440,6 +457,7 @@ class StrictMatcher(Matcher):
         self._income_repair(recipes, out, used)
         self._derive_from_totals(recipes, out)
         self._income_repair(recipes, out, used)  # selisih yang baru kelihatan setelah akun diturunkan
+        self._named_gap_fill(recipes, out, used, "CAP")
         return out
 
     def _is_parent_name(self, tr, parent_label):
@@ -749,6 +767,51 @@ class StrictMatcher(Matcher):
                 continue
             used.update(x.idx for x, _ in combo)
             lo_row = chk["Baris"]
+
+    def _named_gap_fill(self, recipes, out, used, section):
+        """Total masih beda persis sebesar satu akun laporan yang belum dipakai, dan ada baris template
+        kosong (di dalam rumus total itu) yang namanya cocok -> isi baris itu (mis. AT 1 baru di KPMM)."""
+        from .matcher import evaluate_column, reconcile
+
+        def values_now():
+            vals = {}
+            for r in self.model.rows:
+                t = self._row_terms(r.row, recipes, out)
+                if t is not None:
+                    vals[r.row] = sum(t)
+            return vals
+
+        for _ in range(4):
+            vals = values_now()
+            bad = [c for c in reconcile(self, vals) if c["Seksi"] == section and c["Status"] == "BEDA"]
+            done = False
+            for c in sorted(bad, key=lambda c: c["Baris"]):
+                diff = c["Di laporan"] - c["Hasil hitung"]
+                srcs = [x for x in self.source if x.section == section and x.idx not in used and x.values
+                        and (v := self.cur_value(x, section)) is not None and abs(abs(v) - abs(diff)) <= 3]
+                base = evaluate_column(self.model, self.target_col, self.ref_col, vals).get(c["Baris"])
+                pairs = []
+                for tr in self._value_rows:
+                    if tr.section != section or tr.row in vals or tr.row in self._formula_rows:
+                        continue
+                    t = evaluate_column(self.model, self.target_col, self.ref_col, {**vals, tr.row: 1.0}).get(c["Baris"])
+                    if base is None or t is None or abs(abs(t - base) - 1) > 1e-6:
+                        continue
+                    for x in srcs:
+                        if self._support(tr, x) >= 85:
+                            pairs.append((tr, x, t - base))
+                if len(pairs) != 1:
+                    continue
+                tr, x, k = pairs[0]
+                v = diff / k
+                out[tr.row] = {"value": v, "vals": [v], "formula": None, "src": x, "method": "Penyeimbang",
+                               "score": 75.0, "why": f"akun '{x.label}' tidak ada di pola acuan; diisi karena "
+                                                     f"{c['Total (template)']} kurang persis sebesar akun ini"}
+                used.add(x.idx)
+                done = True
+                break
+            if not done:
+                break
 
     def _derive_from_totals(self, recipes, out):
         """Akun yang wajib diisi tapi angkanya tidak terbaca (mis. OCR) dihitung dari total laporan:
@@ -1133,7 +1196,7 @@ class StrictMatcher(Matcher):
 _RATIO_KW = {
     "ldr": r"loan to deposit|\bldr\b|intermediasi|\brim\b", "bopo": r"bopo|beban operasional terhadap",
     "roa": r"\broa\b|return on asset", "roe": r"\broe\b|return on equity", "nim": r"\bnim\b|net interest margin",
-    "npl gross": r"npl gross|bruto", "npl net": r"npl net|neto", "gwm - idr": r"rupiah|gwm utama",
+    "npl gross": r"npl gross|gross npl|bruto", "npl net": r"npl net|net npl|neto", "gwm - idr": r"rupiah|gwm utama",
     "gwm - valas": r"valuta asing|valas", "posisi devisa": r"devisa|\bpdn\b",
 }
 
@@ -1160,6 +1223,22 @@ def _in_kredit(sr) -> bool:
 
 def _is_subtotalish(label: str) -> bool:
     return bool(re.search(r"(,.*\bdan\b.*(neto|bersih))|^pendapatan \(beban\)", label or "", re.I))
+
+
+def _own_company_rows(model, rows):
+    """Buang baris dari tabel milik bank lain yang ikut tercetak (mis. laporan grup Bank Mandiri
+    di halaman koran BSI): judul tabelnya menyebut bank lain, bukan bank sheet ini."""
+    from .banks import BANK_KEYWORDS, _keywords_for
+
+    own = [k.upper() for k in _keywords_for(model)]
+    others = [k for name, ks in BANK_KEYWORDS.items() if name != model.name for k in ks
+              if not any(k in o or o in k for o in own)]
+
+    def foreign(r):
+        comp = (getattr(r, "company", None) or "").upper()
+        return bool(comp) and not any(k in comp for k in own) and any(k in comp for k in others)
+
+    return [r for r in rows if not foreign(r)]
 
 
 def _ocr_partial(sr) -> bool:

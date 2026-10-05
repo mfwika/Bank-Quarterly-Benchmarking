@@ -98,6 +98,9 @@ python -m pytest -q -m "not slow"
 | BRI Des 2025 | PDF teks bahasa Inggris, angka 2024 di-restate (PSAK 117) | Neraca, Laba Rugi & KPMM cocok; nama akun Inggris & salah ketik ('Comissions', 'Deffered') dikenali |
 | BNI Des 2025 | PDF teks, akun asuransi baru | Seimbang; akun asuransi & OCI baru ditempatkan otomatis; NPL terisi |
 | OCBC NISP Des 2025 | Neraca & liabilitas berdampingan, judul berspasi per huruf, header hanya tahun | Semua total cocok; halaman Unit Usaha Syariah diabaikan; NPL terisi |
+| BTN Des 2025 | PDF teks | Semua total cocok; AT 1 baru di KPMM ditempatkan otomatis |
+| CIMB Niaga Des 2025 | PDF teks bahasa Inggris, header 'BANK CIMB NIAGA  CONSOLIDATED' | Semua total cocok; halaman Sharia Business Unit diabaikan |
+| BSI Des 2025 | 1 halaman koran, huruf berupa gambar vektor (tanpa teks) | OCR per kolom tabel: Neraca & Laba Rugi cocok; tabel grup Bank Mandiri di halaman sama dibuang; KPMM belum terbaca |
 | SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
 
 ## Catatan
