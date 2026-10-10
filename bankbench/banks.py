@@ -12,7 +12,7 @@ BANK_KEYWORDS = {
     "BNI": ["BANK NEGARA INDONESIA"],
     "CIMB": ["CIMB NIAGA"],
     "Panin": ["PAN INDONESIA", "PANIN"],
-    "Permata": ["BANK PERMATA"],
+    "Permata": ["BANK PERMATA", "PERMATABANK"],
     "BII": ["MAYBANK INDONESIA", "BANK INTERNASIONAL INDONESIA", "MAYBANK"],
     "BTN": ["BANK TABUNGAN NEGARA"],
     "OCBC NISP": ["OCBC NISP", "OCBC INDONESIA", "BANK OCBC"],
@@ -60,8 +60,11 @@ def detect_bank(text: str, source_rows, models: dict, aliases: dict, filename: s
         title_hit = any(k in titles for k in kws)
         file_hit = bool(ftoks & set(FILE_KEYWORDS.get(name, [])))
         latest = model.latest_period()
-        m = Matcher(model, source_rows, model.last_period_col() + 1, aliases, period=(12, 1900))
-        anchors = len(m._find_anchors(1.0))
+        # kolom setelah periode TERBARU (bukan kolom paling kanan: ada sheet dengan kolom catatan
+        # 'Dec 18' jauh di kanan berisi rumus)
+        lc = model.find_period_col(*latest) if latest else None
+        m = Matcher(model, source_rows, (lc or model.last_period_col()) + 1, aliases, period=(12, 1900))
+        anchors = max(len(m._find_anchors(sc)) for sc in (1.0, 0.001, 1000.0))  # laporan juta vs template miliar
         score = (anchors * 2 + min(kw_hits, 5) * 10 + title_hit * 30 + file_hit * 25
                  + ((latest[1] * 12 + latest[0]) / 1e4 if latest else 0))
         why = [f"{anchors} angka cocok dgn histori"]

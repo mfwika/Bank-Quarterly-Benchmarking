@@ -170,7 +170,8 @@ class SheetModel:
         """Periode terakhir yang sudah ada datanya (month, year)."""
         parsed = self.parsed_periods()
         cols = [c for c in self.filled_cols_before(10**6) if c in parsed]
-        return parsed[cols[-1]] if cols else None
+        # kronologis, bukan kolom paling kanan (sheet CIMB punya kolom catatan 'Dec 18' di kanan)
+        return max((parsed[c] for c in cols), key=lambda p: (p[1], p[0])) if cols else None
 
 
 # ---------------------------------------------------------------------------------
