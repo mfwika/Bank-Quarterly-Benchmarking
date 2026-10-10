@@ -56,7 +56,7 @@ SEED_CONVENTIONS = {
     "IS": {"pendapatan lainnya": ["pendapatan asuransi", "insurance services income", "insurance income"],
            "beban lainnya": ["beban asuransi", "insurance services expense", "insurance expense"]},
 }
-FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang", "Turunan total")
+FALLBACK_METHODS = ("Memori pola", "Nama akun", "Penyeimbang", "Turunan total", "Koreksi OCR")
 
 
 class StrictMatcher(Matcher):
@@ -193,8 +193,8 @@ class StrictMatcher(Matcher):
             return None, f"kosong di periode acuan ({self.model.period_cols.get(col)})"
         cands = []
         for s in self._cands(tr):
-            if s.idx in used:
-                continue
+            if s.idx in used or _is_ratio_label(s.label):
+                continue  # baris rasio (%) bukan komponen angka rupiah
             r = self.ref_value(s, tr.section)
             if r is not None:
                 cands.append((s, -r if getattr(self, "_neg_flip", False) else r))
@@ -217,6 +217,14 @@ class StrictMatcher(Matcher):
 
         # 1) satu akun
         singles = [(s, 1 if (r >= 0) == (h >= 0) or r == 0 else -1) for s, r in cands if _close(abs(r), abs(h))]
+        if not singles:
+            # laporan OCR: angka pembanding salah baca 1 digit (159,830 -> 169,830) -> boleh, asal namanya cocok
+            singles = [(s, 1 if (r >= 0) == (h >= 0) else -1) for s, r in cands
+                       if getattr(s, "ocr", False) and _one_digit_apart(abs(r), abs(h)) and self._support(tr, s) >= 80]
+            if len(singles) == 1:
+                s, sg = singles[0]
+                return Recipe([(s, sg)], "single", h, ["angka pembanding OCR beda 1 digit dari template — CEK"]), None
+            singles = []
         if h == 0 or abs(h) < 100:
             # angka nol/kecil sering kebetulan sama -> wajib didukung nama akun
             singles = [(s, sg) for s, sg in singles if self._support(tr, s) >= 75]
@@ -458,6 +466,9 @@ class StrictMatcher(Matcher):
         self._derive_from_totals(recipes, out)
         self._income_repair(recipes, out, used)  # selisih yang baru kelihatan setelah akun diturunkan
         self._named_gap_fill(recipes, out, used, "CAP")
+        if any(getattr(x, "ocr", False) for x in self.source):
+            if self._ocr_digit_fix(recipes, out, used):
+                self._income_repair(recipes, out, used)
         return out
 
     def _is_parent_name(self, tr, parent_label):
@@ -514,7 +525,7 @@ class StrictMatcher(Matcher):
         t_aset, t_le = tpl(r"^total aset$"), tpl(r"^(jumlah|total) (kewajiban|liabilitas) dan (modal|ekuitas)$")
         t_liab = tpl(r"^total (liabilitas|kewajiban)$")
         (s_aset, v_aset) = rep(r"^(total|jumlah) (aset|assets?|aktiva)$")
-        (s_le, v_le) = rep(r"^(jumlah|total) (liabilitas|kewajiban|liabilities) (dan|and) (ekuitas|modal|equity|equities)$")
+        (s_le, v_le) = rep(r"^(jumlah|total) (liabilitas|kewajiban|liabilities|liability) (dan|and) (ekuitas|modal|equity|equities)$")
         s_liab, _ = rep(r"^(jumlah|total) (liabilitas|kewajiban|liabilities|liability)$")
         if not t_aset or not s_aset:
             return
@@ -768,6 +779,100 @@ class StrictMatcher(Matcher):
             used.update(x.idx for x, _ in combo)
             lo_row = chk["Baris"]
 
+    # digit yang sering tertukar oleh OCR
+    _OCR_CONFUSE = {"6": "85", "8": "63059", "3": "8", "5": "6", "0": "89", "9": "08", "1": "7", "7": "1"}
+
+    def _ok_count(self, recipes, out):
+        from .matcher import reconcile
+
+        vals = {}
+        for r in self.model.rows:
+            t = self._row_terms(r.row, recipes, out)
+            if t is not None:
+                vals[r.row] = sum(t)
+        return sum(c["Status"] != "BEDA" for c in reconcile(self, vals))
+
+    def _ocr_digit_fix(self, recipes, out, used=frozenset()):
+        """Laporan hasil OCR: total meleset karena salah baca SATU digit pada satu angka
+        (mis. 3,883,683 terbaca 3,683,683). Tiap kandidat koreksi dicoba (plus penyeimbang untuk sisa
+        selisih berupa akun baru); dipakai hanya kalau satu kandidat jelas paling banyak membuat
+        cek total cocok dan tidak merusak cek yang sudah cocok."""
+        from .matcher import evaluate_column, reconcile
+
+        def values_now(o):
+            vals = {}
+            for r in self.model.rows:
+                t = self._row_terms(r.row, recipes, o)
+                if t is not None:
+                    vals[r.row] = sum(t)
+            return vals
+
+        def ok_set(o):
+            return {(c["Baris"], c["Total (template)"]) for c in reconcile(self, values_now(o)) if c["Status"] != "BEDA"}
+
+        rows = {r.row: r for r in self.model.rows}
+        any_fix = False
+        for _ in range(6):
+            vals = values_now(out)
+            base = ok_set(out)
+            bad = [c for c in reconcile(self, vals) if c["Status"] == "BEDA" and c["Seksi"] in ("BS", "IS", "CAP")]
+            cands = []
+            for c in bad:
+                d = c["Di laporan"] - c["Hasil hitung"]
+                if abs(d) < 1:
+                    continue
+                tot0 = evaluate_column(self.model, self.target_col, self.ref_col, vals).get(c["Baris"])
+                for row, v in vals.items():
+                    tr = rows.get(row)
+                    if tr is None or tr.section != c["Seksi"] or row in self._formula_rows:
+                        continue
+                    t1 = evaluate_column(self.model, self.target_col, self.ref_col, {**vals, row: v + 1.0}).get(c["Baris"])
+                    if tot0 is None or t1 is None or abs(abs(t1 - tot0) - 1) > 1e-6:
+                        continue
+                    k = t1 - tot0
+                    terms = self._row_terms(row, recipes, out) or [v]
+                    for ti, t in enumerate(terms):
+                        digits = str(int(round(abs(t))))
+                        for pos, ch in enumerate(digits):
+                            for rep in self._OCR_CONFUSE.get(ch, ""):
+                                if pos == 0 and rep == "0":
+                                    continue
+                                nv = float(digits[:pos] + rep + digits[pos + 1:]) * (1 if t >= 0 else -1)
+                                delta = (nv - t) * k
+                                # koreksi harus menutup sebagian besar selisih (sisanya paling banyak akun kecil)
+                                if abs(d - delta) <= max(1.0, 0.01 * abs(d)) or (abs(delta) <= abs(d) + 1 and
+                                                                                  abs(d - delta) < 0.05 * abs(d)):
+                                    cands.append((row, ti, t, nv, terms, c["Total (template)"]))
+            cands = list({(c[0], c[1], c[3]): c for c in cands}.values())[:40]
+            trials = []
+            for row, ti, t, nv, terms, total in cands:
+                trial = {k2: dict(v2) for k2, v2 in out.items()}
+                new_terms = list(terms)
+                new_terms[ti] = nv
+                fb = dict(trial.get(row) or {"src": self.source[0], "score": 80.0, "why": "sesuai pola"})
+                fb.update({"value": sum(new_terms), "vals": new_terms, "method": "Koreksi OCR",
+                           "formula": None if len(new_terms) == 1 else "=" + "".join(
+                               f"{x:.0f}" if i2 == 0 else (f"+{x:.0f}" if x >= 0 else f"{x:.0f}")
+                               for i2, x in enumerate(new_terms))})
+                fb["why"] = (fb.get("why") or "") + f"; angka OCR {t:,.0f} dikoreksi jadi {nv:,.0f} " \
+                    f"(salah baca 1 digit) supaya {total} = laporan"
+                trial[row] = fb
+                used2 = set(used)
+                self._balance_repair(recipes, trial, used2)
+                got = ok_set(trial)
+                if base <= got and len(got) > len(base):
+                    trials.append((len(got), trial, used2))
+            if not trials:
+                break
+            trials.sort(key=lambda x: -x[0])
+            if len(trials) > 1 and trials[0][0] == trials[1][0]:
+                break  # dua koreksi sama bagusnya -> tidak bisa dipastikan
+            out.clear()
+            out.update(trials[0][1])
+            used.update(trials[0][2])
+            any_fix = True
+        return any_fix
+
     def _named_gap_fill(self, recipes, out, used, section):
         """Total masih beda persis sebesar satu akun laporan yang belum dipakai, dan ada baris template
         kosong (di dalam rumus total itu) yang namanya cocok -> isi baris itu (mis. AT 1 baru di KPMM)."""
@@ -920,6 +1025,12 @@ class StrictMatcher(Matcher):
                 if rec.kind == "sum":
                     notes.insert(0, "= " + " + ".join(f"'{s.label}'" for s, _ in rec.parts)
                                  + f" (sesuai pola {self.model.period_cols.get(col)})")
+                if any(v is None for v in vals) and all(
+                        v is not None or (s.cols and len(s.values) < len(s.cols))
+                        for (s, _), v in zip(rec.parts, vals)):
+                    # sel periode berjalan kosong/'-' di laporan (kolom lain terisi) -> 0
+                    vals = [0.0 if v is None else v for v in vals]
+                    notes.append("🟡 sel periode berjalan kosong ('-') di laporan → dianggap 0 — CEK")
                 if any(v is None for v in vals):
                     notes.append("angka periode berjalan tidak ada di laporan — cek manual")
                 else:
@@ -941,6 +1052,10 @@ class StrictMatcher(Matcher):
                 if v:
                     res.note = (f"⚠ kosong di periode acuan ({self.model.period_cols.get(col)}), tapi laporan punya "
                                 f"'{hint[1].label}' = {v:,.0f} — akun baru? tidak diisi")
+            elif ref_h == 0 and self.best_label_match(tr, min_score=80) is None:
+                # periode acuan 0 dan akunnya tidak ada di laporan -> memang 0
+                res.value, res.method, res.score = 0.0, "Nol (acuan 0)", 90.0
+                res.note = "acuan 0 dan akun tidak ada di laporan → 0"
             elif ref_h is not None:
                 res.note = "⚠ " + (reasons.get(tr.row) or "pola tidak ketemu") + " — tidak diisi"
                 hint = self.best_label_match(tr, min_score=80)
@@ -962,8 +1077,10 @@ class StrictMatcher(Matcher):
         ref_label = self.model.period_cols.get(ref_col, f"{ref_per[0]:02d}/{ref_per[1]}")
         out = []
         used = set()
+        # OCR: '17,77' bisa terbaca '1777' -> batas angka rasio dilonggarkan
         ratio_pool = [s for s in self.source_all if s.values and not getattr(s, "cats", None)
-                      and all(abs(v) < 1000 for v in s.values) and s.section in ("OTHER", "CAP", "?")]
+                      and all(abs(v) < (10000 if getattr(s, "ocr", False) else 1000) for v in s.values)
+                      and s.section in ("OTHER", "CAP", "?")]
         aq_rows = [s for s in self.source_all if getattr(s, "cats", None) and s.cols]
         for tr in getattr(self.model, "extra_rows", None) or []:
             prev = self.last_value(tr)
@@ -995,6 +1112,24 @@ class StrictMatcher(Matcher):
                 h = tr.numeric(ref_col)
                 self._ratio(tr, h, ref_per, ratio_pool, used, res, ref_label)
             out.append(res)
+        # putaran kedua: rasio yang angka acuannya tidak ada di laporan (salah ketik / definisi
+        # lain di template) diambil dari nama, asal barisnya bertetangga dengan rasio lain yang
+        # sudah cocok pola (tabel yang sama dengan yang dipakai analis)
+        near = {s.idx for s in ratio_pool} & used
+        for res in out:
+            if res.value is not None or res.section == "NPL" or not (res.note or "").startswith("⚠ angka acuan"):
+                continue
+            tr = next(t for t in self.model.extra_rows if t.row == res.row)
+            h = tr.numeric(ref_col)
+            fb = self._ratio_by_name(tr, h, ref_per, ratio_pool, used, near=near)
+            if fb:
+                s, ci, rv = fb
+                used.add(s.idx)
+                res.value = s.values[ci]
+                res.source_idx, res.source_label = s.idx, s.label
+                res.method, res.score = "Nama akun", 70.0
+                res.note = (f"🟡 angka acuan {h:g} ({ref_label}) beda dengan laporan ({rv:g}) — kemungkinan salah "
+                            "ketik/definisi lain di template; diambil dari nama rasio di tabel yang sama — CEK")
         return out
 
     def _ratio(self, tr, h, ref_per, pool, used, res, ref_label):
@@ -1007,8 +1142,8 @@ class StrictMatcher(Matcher):
                 continue
             meta = s.cols if (s.cols and len(s.cols) == len(s.values)) else None
             for k, v in enumerate(s.values):
-                if abs(v - h) > 0.0051:
-                    continue
+                if abs(v - h) > 0.0051 and not (getattr(s, "ocr", False) and abs(v / 100 - h) <= 0.0051):
+                    continue  # (OCR: '2,49' terbaca '249' juga diterima)
                 if meta and any(p for p, _ in meta):
                     if meta[k][0] != ref_per:
                         continue
@@ -1027,6 +1162,15 @@ class StrictMatcher(Matcher):
                 hits = ranked[:1]
             elif len({round(x[0].values[x[1]], 4) for x in hits}) == 1:
                 hits = ranked[:1]  # semua kandidat memberi angka yang sama
+            else:
+                # tabel rasio ganda (mis. konsolidasian & bank saja): pilih yang satu blok dengan
+                # rasio lain yang sudah cocok pola
+                top = [x for x in ranked if _kw_score(kw, x[0]) == _kw_score(kw, ranked[0][0])]
+                near = {x.idx for x in pool} & set(used)
+                if near:
+                    dist = sorted(((min(abs(x[0].idx - u) for u in near), n) for n, x in enumerate(top)))
+                    if len(dist) > 1 and dist[0][0] < dist[1][0] and dist[0][0] <= 15:
+                        hits = [top[dist[0][1]]]
         if not hits:
             fb = self._ratio_by_name(tr, h, ref_per, pool, used)
             if fb:
@@ -1053,7 +1197,7 @@ class StrictMatcher(Matcher):
             res.note = "🟡 koma desimal hilang di laporan (mis. OCR) → dibagi 100 — CEK"
         res.value = v
 
-    def _ratio_by_name(self, tr, h, ref_per, pool, used):
+    def _ratio_by_name(self, tr, h, ref_per, pool, used, near=None):
         """Rasio tanpa pola angka: cari dari nama rasio, hanya kalau angka pembandingnya di laporan
         beda tipis (±10%) dari template — kalau beda jauh, analis memakai definisi lain."""
         kw = _ratio_keywords(tr.label)
@@ -1075,7 +1219,10 @@ class StrictMatcher(Matcher):
             else:
                 continue
             rv = s.values[ri]
-            if rv and 0.9 <= rv / h <= 1.1:
+            if near is not None:
+                if near and min(abs(s.idx - u) for u in near) <= 3:
+                    cands.append((_kw_score(kw, s), s, ci, rv))
+            elif rv and 0.9 <= rv / h <= 1.1:
                 cands.append((_kw_score(kw, s), s, ci, rv))
         if not cands:
             return None
@@ -1085,6 +1232,37 @@ class StrictMatcher(Matcher):
             return None
         _, s, ci, rv = cands[0]
         return s, ci, rv
+
+    def _npl_approx(self, comps, cats, ref_per, aq_rows, chosen, cur_of):
+        """Komponen NPL acuan tidak ada persis (mis. template pakai angka konsolidasian, laporan
+        hanya bank saja): tiap komponen dipetakan ke baris kredit terdekat di kedalaman yang sama.
+        Diterima hanya kalau barisnya berbeda-beda dan total acuannya selisih ≤5%."""
+        cells = []
+        for s in aq_rows:
+            if not _in_kredit(s):
+                continue
+            for i, (p, _) in enumerate(s.cols):
+                if p == ref_per and i < len(s.values) and s.cats[i] in cats and s.values[i] > 0:
+                    cells.append((s, i))
+        if not cells:
+            return False
+        for depth in sorted({len(getattr(s, "ancestors", None) or []) for s, _ in cells}):
+            pool = [c for c in cells if len(getattr(c[0], "ancestors", None) or []) == depth]
+            pick = [None] * len(comps)
+            for k, c in enumerate(comps):
+                if abs(c) < 10:
+                    continue
+                best = min(pool, key=lambda x: abs(x[0].values[x[1]] - c))
+                pick[k] = best
+            got = [p for p in pick if p]
+            if not got or len({(s.idx, i) for s, i in got}) != len(got):
+                continue
+            want = sum(c for c in comps if abs(c) >= 10)
+            have = sum(s.values[i] for s, i in got)
+            if want and abs(have - want) / abs(want) <= 0.05 and all(cur_of(*p) is not None for p in got):
+                chosen[:] = pick
+                return True
+        return False
 
     def _npl_formula(self, tr, formula, ref_per, aq_rows, res):
         from .text import parse_number
@@ -1116,6 +1294,16 @@ class StrictMatcher(Matcher):
                 for i, (p, _) in enumerate(s.cols):
                     if p == ref_per and i < len(s.values) and s.cats[i] in cats and abs(s.values[i] - c) <= 0.5:
                         cands.append((s, i))
+            if not cands:
+                # tabel OCR: angka pembanding bisa salah baca 1 digit
+                for s in aq_rows:
+                    if not getattr(s, "ocr", False):
+                        continue
+                    for i, (p, _) in enumerate(s.cols):
+                        if p == ref_per and i < len(s.values) and s.cats[i] in cats and (
+                                _one_digit_apart(abs(s.values[i]), abs(c)) or
+                                abs(abs(s.values[i]) - abs(c)) <= max(1000.0, 1e-5 * abs(c))):
+                            cands.append((s, i))
             kredit = [x for x in cands if _in_kredit(x[0])]
             options.append(kredit or cands)
 
@@ -1144,12 +1332,21 @@ class StrictMatcher(Matcher):
             if len(free) > 1 and len({cur_of(*o) for o in free}) == 1:
                 free = free[:1]  # semua kandidat memberi angka periode berjalan yang sama
             if len(free) != 1:
+                if not free and self._npl_approx(comps, cats, ref_per, aq_rows, chosen, cur_of):
+                    approx = True
+                    break
                 res.note = (f"⚠ komponen {comps[k]:,.0f} " + ("muncul di beberapa sel" if free else
                                                              "tidak ditemukan di tabel kualitas aset") + " — tidak diisi")
                 return
             chosen[k] = free[0]
             taken.add((free[0][0].idx, free[0][1]))
+        else:
+            approx = False
         new_parts, notes = [], []
+        if approx:
+            notes.append("🟡 komponen acuan tidak ada persis di laporan (beda entitas/di-restate); dipilih baris "
+                         "kredit terdekat: " + ", ".join(f"'{ch[0].label}'" for ch in chosen if ch) +
+                         f" (selisih total acuan ≤5%) — CEK")
         for k, ch in enumerate(chosen):
             if ch is None:
                 lit = comps_txt[k]
@@ -1163,7 +1360,7 @@ class StrictMatcher(Matcher):
             new_parts.append((f"{v:.0f}", v))
         res.formula = "=(" + "+".join(t for t, _ in new_parts) + ")/" + divisor
         res.value = sum(v for _, v in new_parts) / float(divisor)
-        res.method, res.score = "Pola angka", 100.0
+        res.method, res.score = ("Nama akun", 70.0) if approx else ("Pola angka", 100.0)
         res.source_label = f"Kualitas Aset: {len(new_parts)} komponen ({'/'.join(sorted(cats))})"
         res.note = "; ".join(dict.fromkeys(["rumus: " + res.formula] + notes))
 
@@ -1212,7 +1409,9 @@ def _ratio_keywords(label: str):
 def _kw_score(pat, sr) -> int:
     if not pat:
         return 0
-    txt = " ".join([sr.label] + list(getattr(sr, "ancestors", None) or []) + [sr.parent or ""])
+    if re.search(pat, sr.label, re.I):
+        return 2  # nama rasio di label baris itu sendiri lebih kuat daripada di judul induknya
+    txt = " ".join(list(getattr(sr, "ancestors", None) or []) + [sr.parent or ""])
     return 1 if re.search(pat, txt, re.I) else 0
 
 
@@ -1239,6 +1438,15 @@ def _own_company_rows(model, rows):
         return bool(comp) and not any(k in comp for k in own) and any(k in comp for k in others)
 
     return [r for r in rows if not foreign(r)]
+
+
+def _is_ratio_label(label: str) -> bool:
+    return bool(re.search(r"\brasio\b|\bratio\b|\(%\)|\(\s*vo\s*\)|%\s*$", label or "", re.I))
+
+
+def _one_digit_apart(a, b) -> bool:
+    sa, sb = str(int(round(a))), str(int(round(b)))
+    return len(sa) == len(sb) and len(sa) >= 3 and sum(x != y for x, y in zip(sa, sb)) == 1
 
 
 def _ocr_partial(sr) -> bool:

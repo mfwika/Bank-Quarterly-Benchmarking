@@ -52,7 +52,9 @@ def _reload_changed_bankbench():
 _reload_changed_bankbench()
 
 from bankbench.aliases import MAPPINGS_PATH, add_learned, load_learned, merged_aliases, save_learned
+from bankbench.persist import load_remote, merge_learned, remote_config, save_remote
 from bankbench.banks import detect_bank, sheet_display
+from bankbench.crosscheck import npl_crosscheck
 from bankbench.matcher import reconcile
 from bankbench.pattern import FALLBACK_METHODS, StrictMatcher, reference_period
 from bankbench.periods import EN_ABBR, detect_report_period, format_period_label
@@ -87,7 +89,7 @@ ALL_SECTIONS = ["BS", "IS", "CAP", "RATIO", "NPL"]
 # ---------------------------------------------------------------------------------
 # Naikkan angka ini setiap struktur data parser/model berubah -> cache lama otomatis dibuang
 # (Streamlit Cloud tidak selalu restart penuh setelah update kode).
-CACHE_VERSION = 8
+CACHE_VERSION = 9
 
 
 @st.cache_data(show_spinner=False)
@@ -107,8 +109,8 @@ def parse_cached(name, data, version=CACHE_VERSION):
 
 
 @st.cache_data(show_spinner=False, max_entries=60)
-def detect_bank_cached(fk, _text, _rows, _models, _aliases, version=CACHE_VERSION):
-    return detect_bank(_text, _rows, _models, _aliases)
+def detect_bank_cached(fk, _text, _rows, _models, _aliases, filename="", version=CACHE_VERSION):
+    return detect_bank(_text, _rows, _models, _aliases, filename)
 
 
 def file_key(f):
@@ -133,8 +135,14 @@ if not models:
     st.error("Tidak ada sheet bank (berisi NERACA / LABA RUGI / CAPITAL ADEQUACY) yang terdeteksi di template.")
     st.stop()
 
+REMOTE = remote_config(st.secrets)
 if "learned" not in st.session_state:
     st.session_state.learned = load_learned()
+    if REMOTE:  # memori permanen di repo GitHub (Streamlit Cloud: disk hilang saat restart)
+        try:
+            st.session_state.learned = merge_learned(st.session_state.learned, load_remote(REMOTE)[0])
+        except Exception as e:  # jaringan/token bermasalah -> tetap jalan dengan memori lokal
+            st.session_state.remote_error = str(e)
 aliases = merged_aliases(st.session_state.learned)
 
 with st.sidebar:
@@ -197,7 +205,7 @@ sheet_names = list(models)
 # ---------------------------------------------------------------------------------
 cfg = {}
 for fk, (f, rows, text) in parsed.items():
-    ranking = detect_bank_cached(fk, text, rows, models, aliases)
+    ranking = detect_bank_cached(fk, text, rows, models, aliases, f.name)
     auto_sheet = ranking[0][0]
     det = detect_report_period(text)
     if not det:
@@ -379,7 +387,7 @@ for tab, fk in zip(tabs, order):
         df = st.session_state[f"df_{fk}"]
         is_val = df["Tipe"] == "Nilai"
         filled = df["Nilai"].notna() | (df["Rumus"].astype(str).str.startswith("="))
-        n_pola = int(df["Metode"].isin(["Pola angka", "Pola penjumlahan", "Rumus acuan"]).sum())
+        n_pola = int(df["Metode"].isin(["Pola angka", "Pola penjumlahan", "Rumus acuan", "Nol (acuan 0)"]).sum())
         n_fb = int(df["Metode"].isin(FALLBACK_METHODS).sum())
         n_miss = int((is_val & ~filled).sum())
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -425,6 +433,16 @@ for tab, fk in zip(tabs, order):
                    "⚠ = tidak dikenali → dikosongkan. Kalau yakin, pilih **Akun di Laporan** "
                    "atau ketik **Nilai** secara manual. Baris 'Formula' dihitung otomatis oleh Excel.")
 
+        xc = npl_crosscheck({"section": row["Seksi"], "label": str(row["Akun (Template)"]).replace("↳", "").strip(),
+                             "value": row["Nilai"], "formula": row["Rumus"]} for _, row in df.iterrows())
+        if xc:
+            msg = (f"NPL ÷ (Current + Special Mention + NPL) = **{xc['hitung']:.2f}%** vs NPL gross di tabel rasio "
+                   f"**{xc['laporan']:.2f}%**")
+            if xc["ok"]:
+                st.caption(f"✅ Cek silang NPL: {msg}")
+            else:
+                st.warning(f"Cek silang NPL: {msg} (selisih {xc['selisih']:+.2f} poin) — cek baris NPL/kolektibilitas "
+                           "(bisa juga beda definisi: bank saja vs konsolidasian).")
         numeric = {int(r): float(v) for r, v in df["Nilai"].items()
                    if v is not None and not pd.isna(v) and df.at[r, "Tipe"] != "Formula"}
         checks = reconcile(matcher, numeric)
@@ -479,15 +497,38 @@ if "output" in st.session_state:
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.caption("Catatan: openpyxl tidak menyimpan ulang chart/gambar yang ada di workbook.")
 
-if st.session_state.learned:
-    with st.expander("🧠 Memori pola (pasangan manual + resep penjumlahan per bank)"):
+with st.expander("🧠 Memori pola (pasangan manual + resep penjumlahan per bank)"):
+    if REMOTE:
+        st.caption(f"Penyimpanan permanen: GitHub `{REMOTE['repo']}` → `{REMOTE['path']}`")
+    else:
+        st.caption("Penyimpanan permanen belum diatur (lihat README: secrets `mappings_github`). "
+                   "Sementara: download mappings.json lalu upload lagi di sesi berikutnya.")
+    if st.session_state.get("remote_error"):
+        st.warning(f"Gagal membaca memori dari GitHub: {st.session_state.remote_error}")
+    up_mem = st.file_uploader("Muat mappings.json (digabung dengan memori sekarang)", type=["json"],
+                              key="mem_upload")
+    if up_mem is not None and st.session_state.get("mem_upload_sig") != up_mem.file_id:
+        try:
+            st.session_state.learned = merge_learned(st.session_state.learned, json.loads(up_mem.getvalue()))
+            st.session_state.mem_upload_sig = up_mem.file_id
+            st.success("Memori pola dimuat — proses ulang file untuk memakainya.")
+        except ValueError:
+            st.error("File bukan JSON yang valid.")
+    if st.session_state.learned:
         st.json(st.session_state.learned, expanded=False)
         b1, b2 = st.columns(2)
         with b1:
-            if st.button("💾 Simpan ke mappings.json (server)"):
+            if st.button("💾 Simpan memori pola"):
                 save_learned(st.session_state.learned)
-                st.success(f"Tersimpan di {MAPPINGS_PATH}. Di Streamlit Cloud file ini hilang saat app restart — "
-                           "download lalu commit ke repo supaya permanen.")
+                if REMOTE:
+                    try:
+                        st.session_state.learned = save_remote(REMOTE, st.session_state.learned)
+                        st.success(f"Tersimpan permanen di GitHub ({REMOTE['repo']}/{REMOTE['path']}).")
+                    except Exception as e:
+                        st.error(f"Gagal simpan ke GitHub: {e}. Tersimpan lokal di {MAPPINGS_PATH}.")
+                else:
+                    st.success(f"Tersimpan di {MAPPINGS_PATH}. Di Streamlit Cloud file ini hilang saat app "
+                               "restart — download lalu upload lagi, atau atur secrets `mappings_github`.")
         with b2:
             st.download_button("⬇️ Download mappings.json",
                                data=json.dumps(st.session_state.learned, indent=2, ensure_ascii=False),

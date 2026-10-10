@@ -312,7 +312,8 @@ class Matcher:
         sl = clean_label(sr.label)
         if sl not in names and clean_label(re.sub(r"\(.*?\)", " ", sr.label)) not in names:
             # salah ketik di laporan ('Comissions', 'foward', 'Deffered') -> kemiripan huruf, bukan subset kata
-            if not any(len(n) >= 12 and fuzz.ratio(sl, n) >= 92 for n in names):
+            if not any(len(n) >= 12 and fuzz.ratio(sl, n) >= 92 and not (set(sl.split()) ^ set(n.split())) & _MEANING_WORDS
+                       for n in names):
                 return 0.0
         if tr.parent and sr.parent and similarity(tr.parent, sr.parent) < 55 \
                 and clean_label(sr.parent) not in lookup(self.aliases, tr.section, tr.parent):
@@ -698,6 +699,10 @@ def evaluate_column(model: SheetModel, target_col: int, ref_col: int, values: di
 
 
 _CHECK_LABEL = re.compile(r"total|jumlah|laba|pendapatan bunga bersih|modal inti|modal pelengkap", re.I)
+
+
+_MEANING_WORDS = {"non", "not", "before", "after", "sebelum", "setelah", "gross", "net", "bersih", "neto", "bruto",
+                  "pendapatan", "beban", "income", "expense", "expenses", "gain", "loss", "keuntungan", "kerugian"}
 
 
 def reconcile(matcher: Matcher, values: dict):

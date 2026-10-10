@@ -77,14 +77,23 @@ dengan OCR (Tesseract; `packages.txt` untuk Streamlit Cloud).
 | `bankbench/matcher.py` | Utilitas pencocokan nama/alias, evaluasi formula & rekonsiliasi total |
 | `bankbench/writer.py` | Menulis / menambah kolom periode ke workbook |
 | `bankbench/aliases.py` | Kamus padanan nama akun (ID/EN) + pemetaan hasil belajar |
-| `bankbench/banks.py` | Deteksi bank dari laporan |
+| `bankbench/banks.py` | Deteksi bank dari laporan (angka histori, judul "PT Bank …", teks, nama file) |
+| `bankbench/crosscheck.py` | Cek silang NPL ÷ total kredit vs rasio NPL gross |
+| `bankbench/persist.py` | Simpan memori pola permanen ke repo GitHub (Streamlit Cloud) |
+| `bankbench/regress.py` | Regresi dengan laporan asli di `tests/regression` |
 
 ## Test
 
 ```bash
 python -m pytest -q            # termasuk end-to-end dengan template asli (~40 detik)
 python -m pytest -q -m "not slow"
+python -m pytest -q -m regression   # 11 laporan publikasi asli → harus 0 defect (beberapa menit, OCR)
+python -m bankbench.regress         # sama, dengan ringkasan per laporan
 ```
+
+**Defect** = cek total yang BEDA + baris wajib isi yang kosong. Laporan asli ada di
+`tests/regression/reports/`, daftarnya di `tests/regression/manifest.json` — tambahkan laporan bank
+baru di situ supaya setiap perubahan kode diuji ulang ke semua bank.
 
 ## Diuji dengan laporan asli
 
@@ -100,8 +109,10 @@ python -m pytest -q -m "not slow"
 | OCBC NISP Des 2025 | Neraca & liabilitas berdampingan, judul berspasi per huruf, header hanya tahun | Semua total cocok; halaman Unit Usaha Syariah diabaikan; NPL terisi |
 | BTN Des 2025 | PDF teks | Semua total cocok; AT 1 baru di KPMM ditempatkan otomatis |
 | CIMB Niaga Des 2025 | PDF teks bahasa Inggris, header 'BANK CIMB NIAGA  CONSOLIDATED' | Semua total cocok; halaman Sharia Business Unit diabaikan |
-| BSI Des 2025 | 1 halaman koran, huruf berupa gambar vektor (tanpa teks) | OCR per kolom tabel: Neraca & Laba Rugi cocok; tabel grup Bank Mandiri di halaman sama dibuang; KPMM belum terbaca |
-| SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | Dibaca via OCR; perlu review |
+| BSI Des 2025 | 1 halaman koran, huruf berupa gambar vektor (tanpa teks) | OCR per blok tabel: semua total cocok (Neraca, LR, KPMM, NPL, rasio); tabel grup Bank Mandiri di halaman sama dibuang |
+| SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | OCR + koreksi digit OCR yang diuji ke total: semua total cocok |
+
+Hasil regresi terakhir: **0 defect di 11 laporan** (`python -m bankbench.regress`).
 
 ## Catatan
 
@@ -110,5 +121,17 @@ python -m pytest -q -m "not slow"
   acuannya — akan diproses lebih dulu.
 - openpyxl tidak menyimpan ulang chart/gambar di workbook; kalau template punya chart,
   salin sheet hasil update ke file aslimu.
-- `mappings.json` (pasangan manual + memori resep) bisa di-download dari app; commit ke repo
-  supaya permanen.
+- **Memori pola permanen** (`mappings.json`: pasangan manual + memori resep). Di Streamlit Cloud
+  disk hilang saat restart, jadi isi *Settings → Secrets* app:
+
+  ```toml
+  [mappings_github]
+  token  = "github_pat_..."   # fine-grained token, akses Contents read & write ke repo ini saja
+  repo   = "owner/Bank-Quarterly-Benchmarking"
+  branch = "main"             # opsional
+  path   = "mappings.json"    # opsional
+  ```
+
+  Memori dibaca dari repo saat app mulai, dan tombol **💾 Simpan memori pola** menyimpannya lagi
+  (digabung dengan isi repo, tidak menimpa). Tanpa secrets: download mappings.json lalu upload lagi
+  di sesi berikutnya (expander *Memori pola*).

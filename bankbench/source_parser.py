@@ -287,6 +287,27 @@ class _RowBuilder:
             return True
         return False
 
+    def _merge_ocr_thousands(self, values):
+        """OCR: '484,545 422,706' terbaca '484 545 422 706' -> gabung kelompok 3 digit sampai jumlah
+        angka = jumlah kolom."""
+        width = max(len(self.dates or []), len(self.ents or []))
+        if not (self.ocr_used and width and len(values) > width):
+            return values
+        out, i = [], 0
+        extra = len(values) - width
+        while i < len(values):
+            a = values[i]
+            if extra and i + 1 < len(values):
+                b = values[i + 1]
+                if a == int(a) and b == int(b) and 0 < abs(a) < 1000 and 100 <= abs(b) < 1000:
+                    out.append(float((abs(a) * 1000 + abs(b)) * (1 if a > 0 else -1)))
+                    i += 2
+                    extra -= 1
+                    continue
+            out.append(a)
+            i += 1
+        return out if len(out) == width else values
+
     def _merge_split_digit(self, values):
         """'4 9,112' (digit pertama terpisah spasi) -> 49,112, hanya kalau jumlah angka lebih satu
         dari jumlah kolom header."""
@@ -374,10 +395,18 @@ class _RowBuilder:
         # label terpotong: 'Keuntungan (kerugian) dari ...' + baris berikut 'nilai wajar ... 1.234'
         values = list(values)
         width = max(len(self.dates or []), len(self.ents or []))
-        if width and len(values) == width + 1 and values[0] in (1.0, 2.0, 3.0) \
+        if not width:
+            # header kolom tidak terbaca (OCR): jumlah kolom = yang paling sering di baris-baris terakhir
+            recent = getattr(self, "recent_lens", [])
+            width = max(set(recent), key=recent.count) if len(recent) >= 3 else 0
+        if width and len(values) == width + 1 and (values[0] in (1.0, 2.0, 3.0) or
+                                                   (self.ocr_used and values[0] in (11.0, 12.0, 21.0))) \
                 and re.search(r"\b(CET|AT|Tier|Level|Kelompok|Group)$", label.strip(), re.I):
-            label, values = f"{label.strip()} {int(values[0])}", values[1:]  # 'CET 1' bagian dari nama akun
+            # 'CET 1' / 'Tier 2' bagian dari nama akun ('Tier 21' = OCR '2' + garis tabel)
+            label, values = f"{label.strip()} {str(int(values[0]))[0]}", values[1:]
         values = self._merge_split_digit(values)
+        values = self._merge_ocr_thousands(values)
+        self.recent_lens = (getattr(self, "recent_lens", []) + [len(values)])[-10:]
         if self.ocr_used and width and len(values) > width:
             nonzero = [v for v in values if v != 0]
             if len(nonzero) == width:
@@ -395,6 +424,8 @@ class _RowBuilder:
             self.pending = None
         if not re.search(r"[A-Za-z]{2,}", label):
             return
+        if self.section != "CAP" and len(label) < 40 and re.search(r"\b(Modal Inti \(?Tier 1|Core Capital \(?Tier 1)", label, re.I):
+            self.heading("CAP")  # judul tabel KPMM tidak terbaca (OCR) -> baris pertamanya khas
         parent = self._push(self._level(token), label)
         self.date_stack = None
         cols = _combine_header(self.dates, self.ents, len(values), self.cats)
@@ -403,6 +434,9 @@ class _RowBuilder:
         row.company = getattr(self, "company", None)
         if self.cats and cols and len(cols) == len(self.cats):
             row.cats = list(self.cats)
+            if self.ocr_used:
+                # tabel kolektibilitas tidak punya angka negatif: '(83,729' = '183,729' (angka 1 terbaca '(')
+                row.values = [float("1" + str(int(abs(v)))) if v < 0 and v == int(v) else v for v in row.values]
         self.rows.append(row)
 
 
@@ -781,10 +815,99 @@ def clean_ocr_text(text: str) -> str:
         line = re.sub(r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+) (\d{3})(?![\d.,])", r"\1,\2", line)
         # '47 778,404' -> '47,778,404'
         line = re.sub(r"(?<![\w.,])(\d{1,3}) (\d{3}(?:[.,]\d{3})+)(?![\d.,])", r"\1,\2", line)
+        line = re.sub(r"(?<=\d)\),(?=\s|$)", ")", line)  # '(344,729),' -> koma nyasar setelah kurung
+        # pemisah ribuan campur ('2,462.058') -> semuanya ribuan
+        line = re.sub(r"(?<![\d.,])(\d{1,3})((?:[.,]\d{3})+)(?![\d.,])",
+                      lambda m: m.group(0) if len(set(re.findall(r"[.,]", m.group(2)))) < 2 and not
+                      (m.group(2).count(",") == 1 and m.group(2).count(".") == 1)
+                      else m.group(1) + re.sub(r"[.,]", ".", m.group(2)), line)
+        line = re.sub(r"^I(?=(NET|TOTAL|PROFIT)\b)", "", line)  # garis tabel '|' terbaca 'I'
+        # '(8,451)' terbaca '18,451)' -> kurung buka terbaca angka 1
+        line = re.sub(r"(?<![\w.,(])1(\d{1,3}(?:[.,]\d{3})+)\)", r"(\1)", line)
         # kurung nyasar: '2,973,145)' tanpa '(' -> '2,973,145' ; '(Securities' -> 'Securities'
         line = re.sub(r"(?<![(\d.,])(\d[\d.,]*\d)\)", r"\1", line)
         line = re.sub(r"\((?=[A-Za-z]{3,}\b)(?![^()]*\))", "", line)
         out.append(re.sub(r"\s{2,}", " ", line).strip())
+    return "\n".join(out)
+
+
+_CAT_FUZZY = {"current": "L", "lancar": "L", "l": "L", "special": "DPK", "dpk": "DPK", "substandard": "KL",
+              "kl": "KL", "doubtful": "D", "diragukan": "D", "d": "D", "loss": "M", "macet": "M", "m": "M",
+              "total": "JUMLAH", "jumlah": "JUMLAH"}
+
+
+def _cat_of(word):
+    import difflib
+
+    w = re.sub(r"[^a-z]", "", word.lower())
+    if not w:
+        return None
+    if w in _CAT_FUZZY:
+        return _CAT_FUZZY[w]
+    if len(w) >= 6:
+        hit = difflib.get_close_matches(w, [k for k in _CAT_FUZZY if len(k) >= 6], n=1, cutoff=0.7)
+        return _CAT_FUZZY[hit[0]] if hit else None
+    return None
+
+
+def _ocr_positional_table(img, lang):
+    """OCR tabel kolektibilitas dengan posisi kata: angka ditempatkan ke kolom header terdekat dan sel
+    kosong diisi '-' (OCR biasa membuang tanda '-' sehingga kolom bergeser). None kalau tidak ada header
+    kolektibilitas di gambar ini."""
+    import pytesseract
+
+    d = pytesseract.image_to_data(img, lang=lang, config="--psm 6", output_type=pytesseract.Output.DICT)
+    lines = {}
+    for i, w in enumerate(d["text"]):
+        if not w.strip():
+            continue
+        key = (d["block_num"][i], d["par_num"][i], d["line_num"][i])
+        w = re.sub(r"^[|\[\]{}!]+|[|\[\]{}!]+$", "", w.strip())  # garis tabel menempel di angka
+        if not w:
+            continue
+        lines.setdefault(key, []).append((d["left"][i], d["left"][i] + d["width"][i], d["top"][i], w))
+    ordered = sorted(lines.values(), key=lambda ws: min(t for _, _, t, _ in ws))
+    centers, cats, out = None, None, []
+    for ws in ordered:
+        ws.sort()
+        cw = [(x0, x1, _cat_of(w)) for x0, x1, _, w in ws]
+        found = [(x0 + x1) / 2 for x0, x1, c in cw if c]
+        if len(found) >= 6 and len(found) >= 0.6 * len(ws):
+            centers = found
+            cats = [c for _, _, c in cw if c]
+            out.append(" ".join(cats))
+            continue
+        line = clean_ocr_text(" ".join(w for _, _, _, w in ws))
+        if not centers:
+            out.append(line)
+            continue
+        nums = [((x0 + x1) / 2, w) for x0, x1, _, w in ws if re.fullmatch(r"\(?-?[\d.,]+\)?[,.]?", w)
+                and re.search(r"\d", w) and x1 > min(centers) - 0.6 * (centers[1] - centers[0])]
+        label_ws = [w for x0, x1, _, w in ws if x1 < min(centers) - 0.4 * (centers[1] - centers[0])]
+        if not nums and not label_ws:
+            continue
+        step = (centers[-1] - centers[0]) / max(1, len(centers) - 1)
+        bounds = [(centers[k] + centers[k + 1]) / 2 for k in range(len(centers) - 1)]
+        slots = ["-"] * len(centers)
+        ok = True
+        for x, w in nums:
+            if x < centers[0] - step or x > centers[-1] + step:
+                ok = False
+                break
+            j = sum(1 for bnd in bounds if x > bnd)
+            if slots[j] != "-":
+                ok = False  # dua angka di satu kolom -> posisi tidak bisa dipercaya
+                break
+            w = w.rstrip(",.")
+            if w.startswith("("):  # tabel kolektibilitas tidak punya angka negatif: '(' = angka 1 terbaca salah
+                w = "1" + w[1:].rstrip(")")
+            slots[j] = w
+        if not ok or not nums:
+            out.append(line)
+            continue
+        out.append(clean_ocr_text(" ".join(label_ws) + " " + " ".join(slots)))
+    if not centers:
+        return None
     return "\n".join(out)
 
 
@@ -807,6 +930,11 @@ def _ocr_page_blocks(page, lang="ind+eng"):
                 txt = pytesseract.image_to_string(img, lang=lang, config="--psm 6")
             except pytesseract.TesseractError:
                 txt = pytesseract.image_to_string(img, config="--psm 6")
+            if re.search(r"(Current|Lancar|L)\s+(Special|DPK)", txt, re.I):
+                pos = _ocr_positional_table(img, lang)
+                if pos:
+                    texts.append(pos)
+                    continue
             texts.append(clean_ocr_text(txt))
         except Exception:
             continue
@@ -880,6 +1008,57 @@ def _vector_page_regions(page):
     return sorted(regions, key=lambda r: (cols.index(round(r[0] / 30)), r[1]))
 
 
+def _ocr_lines(img, lang):
+    """OCR -> [(top, teks)] per baris (posisi y dalam piksel)."""
+    import pytesseract
+
+    d = pytesseract.image_to_data(img, lang=lang, config="--psm 6", output_type=pytesseract.Output.DICT)
+    lines = {}
+    for i, w in enumerate(d["text"]):
+        if (w or "").strip():
+            key = (d["block_num"][i], d["par_num"][i], d["line_num"][i])
+            lines.setdefault(key, []).append((d["left"][i], d["top"][i], d["height"][i], w))
+    out = []
+    for ws in lines.values():
+        ws.sort()
+        out.append((min(t for _, t, _, _ in ws), max(h for _, _, h, _ in ws), " ".join(w for *_, w in ws)))
+    return sorted(out)
+
+
+def _is_numbers_only(text):
+    toks = text.split()
+    return bool(toks) and all(re.fullmatch(r"[(\-]?[\d.,]+\)?%?|-|=|:", t) for t in toks) and re.search(r"\d", text)
+
+
+def _merge_label_number_crops(img, a_box, b_box, lang):
+    """Tabel lebar yang terpotong dua (label di potongan kiri, angka saja di potongan kanan pada
+    ketinggian yang sama): bagian itu di-OCR ulang selebar tabel. Return (teks_a, teks_b) atau None."""
+    import pytesseract
+
+    la, lb = _ocr_lines(img.crop(a_box), lang), _ocr_lines(img.crop(b_box), lang)
+    ys = []
+    for top, h, text in la:
+        if re.search(r"\d[\d.,]{3,}", text):
+            continue
+        y = top + a_box[1]
+        if any(abs((tb + b_box[1]) - y) <= max(h, hb) and _is_numbers_only(tx) for tb, hb, tx in lb):
+            ys.append((y, h))
+    if len(ys) < 3:
+        return None
+    y0 = max(min(y for y, _ in ys) - 2 * ys[0][1], a_box[1])
+    # ujung tabel: sampai baris pasangan terakhir + sedikit
+    y1 = min(max(y + h for y, h in ys) + 3 * ys[-1][1], a_box[3])
+    union = (a_box[0], int(y0), b_box[2], int(y1))
+    mid = pytesseract.image_to_string(img.crop(union), lang=lang, config="--psm 6")
+
+    def outside(lines, box):
+        return "\n".join(t for top, _, t in lines if not (y0 - 2 <= top + box[1] <= y1))
+
+    top_a = "\n".join(t for top, _, t in la if top + a_box[1] < y0 - 2)
+    rest_a = "\n".join(t for top, _, t in la if top + a_box[1] > y1)
+    return "\n".join(x for x in (top_a, mid, rest_a) if x), outside(lb, b_box)
+
+
 def _ocr_vector_page(page, lang="ind+eng", dpi=300):
     """OCR halaman vektor: render sekali, binarisasi (teks putih di bar berwarna dibalik jadi hitam),
     lalu OCR tiap potongan tabel."""
@@ -890,25 +1069,54 @@ def _ocr_vector_page(page, lang="ind+eng", dpi=300):
     Image.MAX_IMAGE_PIXELS = None
     gray = np.array(page.to_image(resolution=dpi).original.convert("L")).astype(np.uint8)
     sc = dpi / 72.0
-    out = np.where(gray < 200, 0, 255).astype(np.uint8)
+    # dua versi gambar: abu-abu (baik untuk baris yang diarsir) & hitam-putih (baik untuk teks berwarna);
+    # di keduanya teks putih di bar gelap dibalik jadi hitam. Tiap potongan dipilih versi yang
+    # keyakinan OCR angkanya paling tinggi.
+    out_g = gray.copy()
+    out_b = np.where(gray < 200, 0, 255).astype(np.uint8)
     for r in page.rects:
         if r["width"] <= 20 or r["height"] <= 4:
             continue
         X0, T, X1, B = int(r["x0"] * sc), int(r["top"] * sc), int(r["x1"] * sc), int(r["bottom"] * sc)
         reg = gray[T:B, X0:X1]
         if reg.size and np.median(reg) < 200:
-            out[T:B, X0:X1] = np.where(reg > 200, 0, 255)
-    img = Image.fromarray(out)
+            inv = np.where(reg > 200, 0, 255)
+            out_g[T:B, X0:X1] = inv
+            out_b[T:B, X0:X1] = inv
+    img = Image.fromarray(out_g)
+    img_b = Image.fromarray(out_b)
     texts = []
-    for x0, top, x1, bottom in _vector_page_regions(page):
-        box = (max(0, int(x0 * sc) - 8), max(0, int(top * sc)), min(img.size[0], int(x1 * sc) + 8),
-               min(img.size[1], int(bottom * sc)))
+    regions = _vector_page_regions(page)
+    boxes = [(max(0, int(x0 * sc) - 8), max(0, int(top * sc)), min(img.size[0], int(x1 * sc) + 8),
+              min(img.size[1], int(bottom * sc))) for x0, top, x1, bottom in regions]
+    override = {}
+    for ia, a in enumerate(boxes):
+        for ib, b in enumerate(boxes):
+            # dua potongan bersebelahan, tinggi sama -> mungkin satu tabel lebar terbelah (label | angka)
+            if ia != ib and 0 <= b[0] - a[2] < 40 and abs(a[1] - b[1]) < 30 and abs(a[3] - b[3]) < 30 \
+                    and ia not in override and ib not in override:
+                try:
+                    m = _merge_label_number_crops(img, a, b, lang)
+                except Exception:
+                    m = None
+                if m:
+                    override[ia], override[ib] = clean_ocr_text(m[0]), clean_ocr_text(m[1])
+    for k, box in enumerate(boxes):
+        if k in override:
+            texts.append(override[k])
+            continue
         if box[2] - box[0] < 20 or box[3] - box[1] < 20:
             continue
+        crop = img_b.crop(box)
         try:
-            txt = pytesseract.image_to_string(img.crop(box), lang=lang, config="--psm 6")
+            txt = pytesseract.image_to_string(crop, lang=lang, config="--psm 6")
         except pytesseract.TesseractError:
-            txt = pytesseract.image_to_string(img.crop(box), config="--psm 6")
+            txt = pytesseract.image_to_string(crop, config="--psm 6")
+        if re.search(r"\b(L|Lancar|Current)\s+(DPK|Special)\b", txt, re.I):
+            pos = _ocr_positional_table(crop, lang)  # tabel kolektibilitas: sel kosong dipertahankan
+            if pos:
+                texts.append(pos)
+                continue
         texts.append(clean_ocr_text(txt))
     return texts
 

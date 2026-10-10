@@ -69,7 +69,11 @@ SEED_ALIASES = {
             "keuntungan kerugian dari penjabaran transaksi valuta asing"],
         "taksiran pajak periode berjalan": ["taksiran pajak tahun berjalan", "taksiran pajak periode berjalan"],
         "keuntungan kerugian aktuarial program manfaat pasti": [
-            "pengukuran kembali atas program imbalan pasti", "pengukuran kembali atas program manfaat pasti"],
+            "pengukuran kembali atas program imbalan pasti", "pengukuran kembali atas program manfaat pasti",
+            "keuntungan kerugian yang berasal dari pengukuran kembali atas program pensiun manfaat pasti"],
+        "keuntungan kerugian dari perubahan nilai aset keuangan dalam kelompok tersedia untuk dijual": [
+            "keuntungan kerugian dari perubahan nilai wajar aset keuangan instrumen utang yang diukur pada "
+            "nilai wajar melalui penghasilan komprehensif lain"],
         "penyesuaian akibat penjabaran laporan keuangan dlm mata uang asing": [
             "selisih kurs penjabaran laporan keuangan dalam mata uang asing"],
         "total laba komprehensif tahun berjalan": ["total penghasilan komprehensif tahun berjalan",
@@ -183,7 +187,7 @@ ENGLISH_ALIASES = {
         "keuntungan transaksi spot dan derivatif realised": [
             "gain loss from spot and derivative forward transactions realised",
             "gain loss from spot and derivative transaction forward realised"],
-        "deviden": ["dividend income", "dividends"],
+        "deviden": ["dividend income", "dividends", "dividend revenue"],
         "komisi provisi fee dan administrasi | pendapatan operasional selain bunga": [
             "commissions provisions fees and administrative", "fees and commissions income"],
         "pendapatan lainnya": ["other income"],
@@ -196,6 +200,8 @@ ENGLISH_ALIASES = {
         "beban lainnya": ["other expenses"],
         "keuntungan kerugian penjualan aset tetap dan inventaris": ["gain loss from sale of fixed assets and equipment"],
         "pendapatan beban non operasional lainnya": ["other non operating income expenses"],
+        "keuntungan kerugian penjabaran transaksi valuta asing": [
+            "gain loss from foreign exchange translation", "gain loss from foreign currencies translation"],
         "taksiran pajak periode berjalan": ["current tax", "estimated current tax"],
         "pajak penghasilan": ["income tax expenses", "income tax expense", "income tax", "income taxes"],
         "pendapatan beban pajak tangguhan": ["deferred tax income expenses", "deferred tax", "deffered tax income expenses"],
