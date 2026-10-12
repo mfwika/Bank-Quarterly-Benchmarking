@@ -112,7 +112,12 @@ baru di situ supaya setiap perubahan kode diuji ulang ke semua bank.
 | BSI Des 2025 | 1 halaman koran, huruf berupa gambar vektor (tanpa teks) | OCR per blok tabel: semua total cocok (Neraca, LR, KPMM, NPL, rasio); tabel grup Bank Mandiri di halaman sama dibuang |
 | SMBC Indonesia Des 2025 | Tabel berupa gambar, bahasa Inggris | OCR + koreksi digit OCR yang diuji ke total: semua total cocok |
 
-Hasil regresi terakhir: **0 defect di 11 laporan** (`python -m bankbench.regress`).
+| Permata Des 2025 | PDF teks multi-halaman | Semua total cocok; jadi acuan berantai untuk Jun 2026 |
+| Maybank Indonesia Des 2025 | PDF teks, 'spasi hantu' & sel '-' hilang di tabel kolektibilitas | Kolom kolektibilitas diperbaiki dari JUMLAH; rumus NPL tanpa pembagi dikenali |
+| Panin Des 2025 | 1 halaman koran, tabel berdampingan + daftar pengurus di samping Laba Rugi | Varian layout kedua (dipilih otomatis dari skor kualitas); semua total cocok |
+| Danamon Des 2025 | 1 halaman koran, angka 2024 di-restate | Diisi dari nama akun (🟡 CEK) dengan tanda mengikuti template; Neraca & LR cocok |
+
+Hasil regresi terakhir: **0 defect di 16 laporan dari 13 bank** (`python -m bankbench.regress`).
 
 ## Catatan
 

@@ -183,6 +183,35 @@ def parse_category_header(line: str):
     return cats
 
 
+def _repair_cat_groups(values, cats):
+    """Tabel kolektibilitas dengan sel '-' yang tidak ikut terbaca ('613.019 - - - 613.019' padahal
+    ada 5 kolom + JUMLAH): pecah per kelompok [L .. M, JUMLAH] memakai JUMLAH = jumlah isinya,
+    lalu sel yang hilang diisi 0 tepat sebelum JUMLAH. None kalau tidak bisa dipastikan."""
+    if "JUMLAH" not in cats:
+        return None
+    g = cats.index("JUMLAH") + 1
+    if len(cats) % g or any(cats[i:i + g] != cats[:g] for i in range(0, len(cats), g)):
+        return None
+    ngroups = len(cats) // g
+
+    def solve(pos, left):
+        if left == 0:
+            return [] if pos == len(values) else None
+        for k in range(g - 1, 0, -1):  # sel hilang paling sedikit dulu
+            j = pos + k
+            if j >= len(values):
+                continue
+            part = values[pos:j]
+            if abs(sum(part) - values[j]) <= 1.0 and (values[j] != 0 or k == g - 1 or left > 1):
+                rest = solve(j + 1, left - 1)
+                if rest is not None:
+                    return part + [0.0] * (g - 1 - k) + [values[j]] + rest
+        return None
+
+    out = solve(0, ngroups)
+    return out if out and len(out) == len(cats) else None
+
+
 def _combine_header(dates, ents, n_values=None, cats=None):
     if cats and dates and len(cats) % len(dates) == 0:
         width = len(cats)
@@ -428,6 +457,8 @@ class _RowBuilder:
             self.heading("CAP")  # judul tabel KPMM tidak terbaca (OCR) -> baris pertamanya khas
         parent = self._push(self._level(token), label)
         self.date_stack = None
+        if self.cats and len(values) < len(self.cats):
+            values = _repair_cat_groups(values, self.cats) or values
         cols = _combine_header(self.dates, self.ents, len(values), self.cats)
         row = SourceRow(len(self.rows), label, list(values), self.section, parent, self.page, cols)
         row.ancestors = [lbl for _, lbl in self.stack if lbl != label]
@@ -623,7 +654,7 @@ def _split_columns(page, x0, x1, depth=0):
     return [text]
 
 
-def _layout_blocks(page):
+def _layout_blocks(page, v2=False):
     """Susun ulang teks halaman per KOLOM TABEL berdasarkan posisi kata.
 
     1. kata -> 'segmen' (kata-kata berdempetan di baseline yang sama = satu frasa:
@@ -676,23 +707,29 @@ def _layout_blocks(page):
             continue
         right = sorted((o for o in same_line(sg) if o["x0"] > sg["x1"] - 1), key=lambda o: o["x0"])
         if right and is_num(right[0]):
-            starts.append((sg["x0"], sg["top"], right[0]["x0"]))
+            run = []
+            for o in right:
+                if not is_num(o):
+                    break
+                run.append(o)
+            starts.append((sg["x0"], sg["top"], right[0]["x0"], run[-1]["x1"]))
         elif re.search(r"\d[\d.,]*\)?\s*$", sg["text"]):
-            starts.append((sg["x0"], sg["top"], sg["x1"]))
+            starts.append((sg["x0"], sg["top"], sg["x1"], sg["x1"]))
     if len(starts) < 5:
         return None
     starts.sort()
     groups = []
-    for x, top, nx in starts:
+    for x, top, nx, nx1 in starts:
         g = groups[-1] if groups else None
         if g and x - g["xs"][-1] <= 3:
             g["xs"].append(x)
             g["tops"].append(top)
             g["nxs"].append(nx)
+            g["nx1s"].append(nx1)
         else:
-            groups.append({"xs": [x], "tops": [top], "nxs": [nx]})
+            groups.append({"xs": [x], "tops": [top], "nxs": [nx], "nx1s": [nx1]})
     groups = [{"x": min(g["xs"]), "ymin": min(g["tops"]), "ymax": max(g["tops"]), "n": len(g["xs"]),
-               "numx": sorted(g["nxs"])[len(g["nxs"]) // 2]} for g in groups]
+               "numx": sorted(g["nxs"])[len(g["nxs"]) // 2], "numx1": max(g["nx1s"])} for g in groups]
     # label yang masih di KIRI angka suatu tabel = indentasi tabel itu (a., 1.2.1., dst)
     merged = []
     for g in sorted(groups, key=lambda g: g["x"]):
@@ -701,41 +738,76 @@ def _layout_blocks(page):
         if host:
             host["ymin"], host["ymax"] = min(host["ymin"], g["ymin"]), max(host["ymax"], g["ymax"])
             host["n"] += g["n"]
+            host["numx1"] = max(host["numx1"], g["numx1"])
         else:
             merged.append(dict(g))
     cols_def = [g for g in merged if g["n"] >= 3]
     if not cols_def:
         return None
 
-    def col_of(sg):
+    def col_of(sg, label=False):
         # 1) kolom yang rentang vertikalnya benar-benar mencakup posisi ini
         # 2) kalau tidak ada: longgarkan (judul/header tabel ada di atas baris pertama)
+        # label yang mulai di KANAN awal angka suatu tabel bukan label tabel itu (tabel sebelah
+        # yang baris pertamanya lebih rendah, mis. 'I. PIHAK TERKAIT' di samping 'Kas 1.668.496')
         for lo, hi in ((2, 2), (80, 20)):
             cands = [i for i, g in enumerate(cols_def)
-                     if g["x"] <= sg["x0"] + 15 and g["ymin"] - lo <= sg["top"] <= g["ymax"] + hi]
+                     if g["x"] <= sg["x0"] + 15 and g["ymin"] - lo <= sg["top"] <= g["ymax"] + hi
+                     and not (v2 and label and sg["x0"] > g["numx"] + 2 and any(
+                         g["numx"] < h["x"] <= sg["x0"] + 15 and h["ymin"] - 80 <= sg["top"] <= h["ymax"] + 20
+                         for h in cols_def))
+                     and not (v2 and label and lo == 2 and sg["x0"] > g["numx1"] + 8)]
             if cands:
                 return max(cands, key=lambda i: cols_def[i]["x"])
+            if v2 and label and lo == 2 and any(g["x"] <= sg["x0"] + 15 and g["ymin"] - 2 <= sg["top"] <= g["ymax"] + 2
+                                         for g in cols_def):
+                return None  # teks di kanan angka tabel (daftar pengurus/pemegang saham) -> blok sendiri
         cands = [i for i, g in enumerate(cols_def) if g["x"] <= sg["x0"] + 15] or [0]
         return max(cands, key=lambda i: cols_def[i]["x"])
 
     order = sorted(range(len(cols_def)), key=lambda i: (cols_def[i]["x"], cols_def[i]["ymin"]))
-    cols = {i: [] for i in order}
+    cols = {i: [] for i in order + [None]}
     label_col = {}
     for sg in segs:
         if not is_num(sg):
-            label_col[id(sg)] = col_of(sg)
+            label_col[id(sg)] = col_of(sg, label=True)
+    num_col, cat_hdr = {}, []
     for sg in segs:
         if is_num(sg):
             # angka ikut kolom LABA-nya: label terdekat di kiri pada baris yang sama
             left = [o for o in same_line(sg) if not is_num(o) and o["x1"] <= sg["x0"] + 1
                     and re.search(r"[A-Za-z]{2,}", o["text"])]
-            if left:
-                cols[label_col[id(max(left, key=lambda o: o["x1"]))]].append(sg)
-                continue
-            cols[col_of(sg)].append(sg)
+            nxt = [o for o in same_line(sg) if not is_num(o) and 0 <= o["x0"] - sg["x1"] < 6]
+            if v2 and sg["text"] == "-" and nxt and label_col.get(id(nxt[0]), 0) is None:
+                num_col[id(sg)] = None  # '- PT Panin Financial' : tanda daftar, bukan angka nol
+            elif left:
+                num_col[id(sg)] = label_col[id(max(left, key=lambda o: o["x1"]))]
+            else:
+                num_col[id(sg)] = col_of(sg)
+            cols[num_col[id(sg)]].append(sg)
+        elif v2 and all(t.lower() in _CAT_WORDS for t in sg["text"].split()) or v2 and re.fullmatch(
+                r"(\d{1,2}\s+)?[A-Za-z]{3,9}\.?\s+\d{4}", sg["text"].strip()):
+            # 'L DPK KL D M JUMLAH' / '31 DES 2025' (header tabel lebar): ikut kolom angka tepat di bawahnya
+            cat_hdr.append(sg)
         else:
             cols[label_col[id(sg)]].append(sg)
-    cols = [cols[i] for i in order]
+    nums = [o for o in segs if is_num(o)]
+    placed = []  # (kolom, top) header kolektibilitas yang dipindah
+    for date_pass in (False, True):
+        for sg in cat_hdr:
+            is_date = not all(t.lower() in _CAT_WORDS for t in sg["text"].split())
+            if is_date != date_pass:
+                continue
+            below = [o for o in nums if abs(o["x0"] - sg["x0"]) < 15 and 0 < o["top"] - sg["top"] < 40]
+            ci = num_col[id(min(below, key=lambda o: o["top"]))] if below else None
+            # tanggal hanya ikut kalau tepat di atas header kolektibilitas kolom itu (tabel kualitas aset)
+            if ci is not None and (not is_date or any(c == ci and 0 < t - sg["top"] < 30 for c, t in placed)):
+                cols[ci].append(sg)
+                if not is_date:
+                    placed.append((ci, sg["top"]))
+            else:
+                cols[label_col[id(sg)]].append(sg)
+    cols = [cols[i] for i in order] + ([cols[None]] if cols[None] else [])
 
     blocks = []
     for col in cols:
@@ -766,7 +838,13 @@ def _page_blocks(page):
         return old
     # pilih susunan yang menghasilkan lebih banyak baris lengkap:
     # label + angka + header kolom (periode/entitas) yang jumlahnya pas
-    return new if _blocks_quality(new) > _blocks_quality(old) else old
+    best = new if _blocks_quality(new) > _blocks_quality(old) else old
+    # varian 2: tabel berdampingan yang baris pertamanya beda tinggi, header kolektibilitas lebar,
+    # daftar pengurus di samping tabel (Panin) -> dipakai hanya kalau jelas lebih baik
+    v2 = _layout_blocks(page, v2=True)
+    if v2 is not None and _blocks_quality(v2) > _blocks_quality(best) + 3:
+        return v2
+    return best
 
 
 def _blocks_quality(blocks) -> float:

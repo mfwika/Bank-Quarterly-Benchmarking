@@ -7,8 +7,12 @@
   {"file": "BRI_Q4_2025_EN.pdf", "sheet": "BRI", "month": 12, "year": 2025},
   {"file": "BNI_FY2025.pdf", "sheet": "BNI", "month": 12, "year": 2025},
   {"file": "BNI_1H2026.pdf", "sheet": "BNI", "month": 6, "year": 2026},
-  {"file": "Permata_Jun2026.pdf", "sheet": "Permata", "month": 6, "year": 2026},
+  {"file": "Permata_Des2025.pdf", "sheet": "Permata", "month": 12, "year": 2025},
+  {"file": "Permata_Jun2026.pdf", "sheet": "Permata", "month": 6, "year": 2026, "after": "Permata_Des2025.pdf"},
   {"file": "BTN_Q4_2025.pdf", "sheet": "BTN", "month": 12, "year": 2025},
   {"file": "CIMB_Niaga_Dec2025_EN.pdf", "sheet": "CIMB", "month": 12, "year": 2025},
-  {"file": "BSI_Dec2025_koran.pdf", "sheet": "BSI", "month": 12, "year": 2025, "ocr": true}
+  {"file": "BSI_Dec2025_koran.pdf", "sheet": "BSI", "month": 12, "year": 2025, "ocr": true},
+  {"file": "Panin_Des2025.pdf", "sheet": "Panin", "month": 12, "year": 2025},
+  {"file": "Maybank_Des2025.pdf", "sheet": "BII", "month": 12, "year": 2025},
+  {"file": "Danamon_Des2025.pdf", "sheet": "Danamon", "month": 12, "year": 2025}
 ]

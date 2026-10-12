@@ -720,6 +720,10 @@ def reconcile(matcher: Matcher, values: dict):
         # label total kadang kembar ('TOTAL LABA TAHUN BERJALAN' 2x) -> kalau salah satu
         # kandidat yang namanya mirip angkanya cocok, anggap OK
         cands = matcher.label_candidates(tr)
+        if not re.search(r"ekuitas|modal|equity", clean_label(tr.label)):
+            # 'TOTAL LIABILITAS' tidak boleh dibandingkan dengan 'TOTAL LIABILITAS DAN EKUITAS'
+            # (laporan tanpa baris total liabilitas, mis. Panin)
+            cands = [c for c in cands if not re.search(r"\b(dan|and) (ekuitas|modal|equity)", clean_label(c[1].label))]
         if not cands:
             continue
         # nama persis sama selalu didahulukan ('Pendapatan bunga bersih' bukan 'Pendapatan bunga')

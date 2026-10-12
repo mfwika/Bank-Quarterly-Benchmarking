@@ -244,7 +244,9 @@ class StrictMatcher(Matcher):
         # 'Pendapatan (beban) ... bersih' boleh jadi komponen (mis. asuransi keuangan), tapi dikenai penalti subtotal
         pool = [(s, abs(r) if expense else r) for s, r in cands
                 if r != 0 and (not _is_total(s.label) or _is_subtotalish(s.label)) and not _is_grand_total(s.label)
-                and abs(r) <= 3 * abs(h) + 1]
+                and (abs(r) <= 3 * abs(h) + 1 or self._support(tr, s) >= 70)]
+        # (akun besar yang saling meniadakan, mis. spot -749.336 + selisih kurs 511.764, hanya
+        #  kalau namanya mirip — supaya kombinasi kebetulan tidak meledak)
         pool = pool[:120]
         by_val = defaultdict(list)
         for i, (s, r) in enumerate(pool):
@@ -403,12 +405,33 @@ class StrictMatcher(Matcher):
             todo.remove(tr)
 
         # 2) nama akun / kamus padanan
+        # nama kembar ('Pemilik' untuk laba bersih lalu untuk laba komprehensif): urutan ke-n di
+        # template dipasangkan dengan urutan ke-n di laporan
+        def ranks(items, key):
+            seen, out_r = defaultdict(int), {}
+            for it in items:
+                k = clean_label(it.label)
+                out_r[key(it)] = (k, seen[k])
+                seen[k] += 1
+            return out_r, seen
+
+        t_rank, t_cnt = ranks(sorted(self.model.rows, key=lambda r: r.row), lambda r: r.row)
+        s_rank, s_cnt = ranks(sorted(self.source, key=lambda x: x.idx), lambda x: x.idx)
+
+        def ordinal_bonus(tr, sr):
+            (tk, ti), (sk, si) = t_rank.get(tr.row, ("", 0)), s_rank.get(sr.idx, ("", 0))
+            if t_cnt.get(tk, 0) > 1 and s_cnt.get(sk, 0) > 1:
+                return 5 if ti == si else -5
+            return 0
+
         pairs = []
         for tr in todo:
             for sr in self._cands(tr):
-                if sr.idx in used or not sr.values or _is_total(sr.label) or _ocr_partial(sr):
+                if sr.idx in used or not sr.values or _ocr_partial(sr):
                     continue
                 base = self._support(tr, sr)
+                if _is_total(sr.label) and not (_is_total(tr.label) and base >= 90):
+                    continue  # baris total laporan hanya untuk baris template yang juga total (mis. EPS)
                 if base < 80:
                     continue
                 if sr.parent and self._is_parent_name(tr, sr.parent) and \
@@ -416,7 +439,7 @@ class StrictMatcher(Matcher):
                     continue  # baris template = induknya (mis. OCI = Keuntungan + Kerugian) -> lapis 2b
                 v = self._fb_value(tr, sr)
                 plaus, _ = self._plausibility(tr, v)
-                pairs.append((base + self._pos_bonus(tr, sr) + plaus, tr, sr))
+                pairs.append((base + self._pos_bonus(tr, sr) + plaus + ordinal_bonus(tr, sr), tr, sr))
         pairs.sort(key=lambda x: -x[0])
         done = set()
         for score, tr, sr in pairs:
@@ -480,7 +503,9 @@ class StrictMatcher(Matcher):
         v, _ = self.value_for(tr, sr)
         if v:
             hist = [h for _, h in self.history(tr, 4) if h]
-            if v > 0 and ((hist and all(h < 0 for h in hist)) or "-/-" in sr.label):
+            if hist and all(h > 0 for h in hist):
+                v = abs(v)  # template selalu positif (mis. 'Beban bunga' walau laporan menulis '-/-')
+            elif v > 0 and ((hist and all(h < 0 for h in hist)) or (not hist and "-/-" in sr.label)):
                 v = -v
         return v
 
@@ -490,6 +515,7 @@ class StrictMatcher(Matcher):
         sesudahnya = ekuitas). Kombinasi akun yang jumlahnya persis menutup selisih total dimasukkan:
         ke baris template yang namanya cocok, atau ke Aset/Liabilitas/Ekuitas lainnya."""
         from itertools import combinations
+
 
         from .matcher import evaluate_column
 
@@ -543,7 +569,10 @@ class StrictMatcher(Matcher):
             if x.idx not in side_cache:
                 best = max(((self._support(r, x), r) for r in bs_rows if r.row not in self._formula_rows),
                            key=lambda p: p[0], default=(0, None))
-                side_cache[x.idx] = side_tpl(best[1]) if best[0] >= 85 else side_pos(x)
+                # nama satu kata ('Cadangan' di Ekuitas) tidak cukup untuk 'Cadangan kerugian ... konsumen'
+                similar = best[1] is not None and fuzz.token_sort_ratio(
+                    clean_label(best[1].label), clean_label(x.label)) >= 60
+                side_cache[x.idx] = side_tpl(best[1]) if best[0] >= 85 and similar else side_pos(x)
             return side_cache[x.idx]
 
         def side_tpl(r):
@@ -641,6 +670,7 @@ class StrictMatcher(Matcher):
         muncul) dan persis menutup selisih total template vs laporan dimasukkan ke pos 'lainnya'
         di blok yang sama (operasional / non operasional / penghasilan komprehensif lain)."""
         from itertools import combinations
+
 
         from .matcher import reconcile
 
@@ -1136,6 +1166,16 @@ class StrictMatcher(Matcher):
         if h is None:
             res.note = "⚠ nilai periode acuan bukan angka — tidak diisi"
             return
+        hits = self._ratio_hits(tr, h, ref_per, pool, used)
+        if not hits:
+            # rasio yang sama dipakai 2x di template (mis. 'LDR' & 'LDR - Bank Only'): boleh pakai
+            # ulang baris laporan yang namanya memang rasio itu
+            kw = _ratio_keywords(tr.label)
+            hits = [x for x in self._ratio_hits(tr, h, ref_per, [s for s in pool if s.idx in used], set())
+                    if _kw_score(kw, x[0]) >= 2]
+        self._ratio_pick(tr, h, ref_per, pool, used, res, ref_label, hits)
+
+    def _ratio_hits(self, tr, h, ref_per, pool, used):
         hits = []
         for s in pool:
             if s.idx in used:
@@ -1155,6 +1195,9 @@ class StrictMatcher(Matcher):
                     ci = k - 1 if k % 2 == 1 else None  # pasangan [kini, lalu]
                 if ci is not None and ci < len(s.values):
                     hits.append((s, ci))
+        return hits
+
+    def _ratio_pick(self, tr, h, ref_per, pool, used, res, ref_label, hits):
         if len(hits) > 1:
             kw = _ratio_keywords(tr.label)
             ranked = sorted(hits, key=lambda x: -_kw_score(kw, x[0]))
@@ -1268,13 +1311,14 @@ class StrictMatcher(Matcher):
         from .text import parse_number
 
         m = re.match(r"^=\s*\(([^()]*)\)\s*/\s*([\d.]+)\s*$", formula.strip()) or \
-            re.match(r"^=\s*([\d.]+)\s*/\s*([\d.]+)\s*$", formula.strip())  # satu komponen: '=30643981/1000'
+            re.match(r"^=\s*([\d.]+)\s*/\s*([\d.]+)\s*$", formula.strip()) or \
+            re.match(r"^=\s*\(?([\d.+\s]+?)\)?()\s*$", formula.strip())  # tanpa pembagi: '=(27986+436079)'
 
         if not m:
             res.note = "⚠ rumus periode acuan tidak dikenali — tidak diisi"
             return
         comps_txt = [c.strip() for c in m.group(1).split("+")]
-        divisor = m.group(2)
+        divisor = m.group(2) or ""
         comps = [parse_number(c) for c in comps_txt]
         if any(c is None for c in comps):
             res.note = "⚠ rumus periode acuan tidak dikenali — tidak diisi"
@@ -1358,8 +1402,8 @@ class StrictMatcher(Matcher):
                 res.note = "⚠ angka periode berjalan tidak ada di tabel kualitas aset — tidak diisi"
                 return
             new_parts.append((f"{v:.0f}", v))
-        res.formula = "=(" + "+".join(t for t, _ in new_parts) + ")/" + divisor
-        res.value = sum(v for _, v in new_parts) / float(divisor)
+        res.formula = "=(" + "+".join(t for t, _ in new_parts) + ")" + (f"/{divisor}" if divisor else "")
+        res.value = sum(v for _, v in new_parts) / float(divisor or 1)
         res.method, res.score = ("Nama akun", 70.0) if approx else ("Pola angka", 100.0)
         res.source_label = f"Kualitas Aset: {len(new_parts)} komponen ({'/'.join(sorted(cats))})"
         res.note = "; ".join(dict.fromkeys(["rumus: " + res.formula] + notes))

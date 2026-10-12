@@ -480,3 +480,20 @@ a. Gain (loss) from adjustments arising resulting from translation of financial
     assert rows[0].label.startswith("Gain (loss) from adjustments") and rows[0].values == [432128.0, 47531.0]
     assert rows[0].cols == [((12, 2025), None), ((12, 2024), None)]
     assert rows[1].values == [120000.0, 49112.0]  # '4 9.112' -> 49.112
+
+
+def test_repair_cat_groups_fills_missing_dash():
+    from bankbench.source_parser import _repair_cat_groups
+
+    cats = ["L", "DPK", "KL", "D", "M", "JUMLAH"] * 2
+    # '613.019 - - - 613.019' (satu '-' tidak terbaca) + kelompok 2 lengkap
+    out = _repair_cat_groups([613019, 0, 0, 0, 613019, 345817, 0, 0, 0, 0, 345817], cats)
+    assert out == [613019, 0, 0, 0, 0, 613019, 345817, 0, 0, 0, 0, 345817]
+    assert _repair_cat_groups([1, 2, 3], cats) is None
+
+
+def test_npl_formula_without_divisor_is_recognised():
+    import re
+
+    f = "=(27986+436079+16611637)"
+    assert re.match(r"^=\s*\(?([\d.+\s]+?)\)?()\s*$", f)
