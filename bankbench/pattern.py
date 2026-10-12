@@ -507,7 +507,7 @@ class StrictMatcher(Matcher):
                 # template selalu positif (mis. 'Beban bunga' walau laporan menulis '-/-'); hanya untuk
                 # akun yang namanya memang baris itu — komponen tambahan ('Dividen dibayar -/-') tetap negatif
                 v = abs(v)
-            elif v > 0 and ((hist and all(h < 0 for h in hist)) or (not hist and "-/-" in sr.label)):
+            elif v > 0 and ((hist and all(h < 0 for h in hist)) or "-/-" in sr.label):
                 v = -v
         return v
 
