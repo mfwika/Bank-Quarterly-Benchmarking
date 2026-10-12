@@ -60,7 +60,8 @@ from bankbench.pattern import FALLBACK_METHODS, StrictMatcher, reference_period
 from bankbench.periods import EN_ABBR, detect_report_period, format_period_label
 from bankbench.source_parser import ocr_available, parse_source
 from bankbench.template_model import SECTION_NAMES, load_bank_models
-from bankbench.writer import apply_to_workbook
+from bankbench.writer import apply_to_workbook, write_issue_sheet
+from bankbench.compare import compare_workbooks
 
 st.set_page_config(page_title="Auto-Update Template Benchmarking", layout="wide")
 st.title("Auto-Update Template Benchmarking")
@@ -89,7 +90,7 @@ ALL_SECTIONS = ["BS", "IS", "CAP", "RATIO", "NPL"]
 # ---------------------------------------------------------------------------------
 # Naikkan angka ini setiap struktur data parser/model berubah -> cache lama otomatis dibuang
 # (Streamlit Cloud tidak selalu restart penuh setelah update kode).
-CACHE_VERSION = 9
+CACHE_VERSION = 10
 
 
 @st.cache_data(show_spinner=False)
@@ -334,6 +335,7 @@ for fk in order:
 # STEP 4: tampilan per file
 # ---------------------------------------------------------------------------------
 st.subheader("② Review per laporan")
+gate_issues = {}  # fk -> daftar masalah yang wajib dikonfirmasi sebelum generate
 tabs = st.tabs([f"{parsed[fk][0].name} → {jobs[fk]['sheet']} {jobs[fk]['label']}" for fk in order])
 for tab, fk in zip(tabs, order):
     f, rows, text = parsed[fk]
@@ -390,6 +392,11 @@ for tab, fk in zip(tabs, order):
         n_pola = int(df["Metode"].isin(["Pola angka", "Pola penjumlahan", "Rumus acuan", "Nol (acuan 0)"]).sum())
         n_fb = int(df["Metode"].isin(FALLBACK_METHODS).sum())
         n_miss = int((is_val & ~filled).sum())
+        gate_issues[fk] = [
+            {"File": job["file"], "Sheet": job["sheet"], "Periode": job["label"], "Baris": int(r),
+             "Akun": str(row["Akun (Template)"]).strip(), "Masalah": "⚠ Kosong",
+             "Keterangan": str(row["Catatan"] or "")}
+            for r, row in df[is_val & ~filled].iterrows()]
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Baris yang perlu diisi", int(is_val.sum()))
         m2.metric("Terisi sesuai pola", n_pola)
@@ -446,6 +453,11 @@ for tab, fk in zip(tabs, order):
         numeric = {int(r): float(v) for r, v in df["Nilai"].items()
                    if v is not None and not pd.isna(v) and df.at[r, "Tipe"] != "Formula"}
         checks = reconcile(matcher, numeric)
+        gate_issues[fk] += [
+            {"File": job["file"], "Sheet": job["sheet"], "Periode": job["label"], "Baris": int(ch["Baris"]),
+             "Akun": str(ch["Total (template)"]), "Masalah": "BEDA dengan laporan",
+             "Keterangan": f"hasil {fmt_num(ch['Hasil hitung'])} vs laporan {fmt_num(ch['Di laporan'])}"}
+            for ch in checks if ch["Status"] == "BEDA"]
         if checks:
             chk = pd.DataFrame(checks).drop(columns=["_src_idx"], errors="ignore")
             bad = int((chk["Status"] == "BEDA").sum())
@@ -468,7 +480,23 @@ for tab, fk in zip(tabs, order):
 st.subheader("③ Generate template")
 annotate = st.checkbox("Beri comment di sel yang diisi manual / hasil penjumlahan / 🟡 CEK (biar gampang dicek di Excel)",
                        value=True)
-if st.button(f"🚀 Update template — {len(jobs)} laporan", type="primary"):
+
+# gerbang wajib: BEDA dengan laporan / baris wajib isi yang kosong harus dikonfirmasi dulu
+issues = [i for fk in order for i in gate_issues.get(fk, [])]
+gate_sig = hashlib.md5(json.dumps(issues, sort_keys=True, default=str).encode()).hexdigest()
+if st.session_state.get("gate_sig") != gate_sig:  # daftar berubah (mis. setelah koreksi) -> konfirmasi ulang
+    st.session_state["gate_sig"] = gate_sig
+    st.session_state["gate_ack"] = False
+if issues:
+    n_beda = sum(i["Masalah"].startswith("BEDA") for i in issues)
+    st.error(f"⛔ Masih ada **{n_beda} total yang BEDA dengan laporan** dan **{len(issues) - n_beda} baris wajib isi "
+             "yang kosong**. Perbaiki di tabel review (pilih akun / ketik nilai), atau konfirmasi bahwa kamu akan "
+             "mengeceknya manual. Daftarnya juga ditulis ke sheet `_Cek_AutoUpdate` di file hasil.")
+    st.dataframe(pd.DataFrame(issues), hide_index=True, width="stretch")
+    st.checkbox("Saya sudah membaca daftar di atas dan akan mengecek / mengisi sel-sel tersebut secara manual",
+                key="gate_ack")
+gate_ok = not issues or st.session_state.get("gate_ack", False)
+if st.button(f"🚀 Update template — {len(jobs)} laporan", type="primary", disabled=not gate_ok):
     with st.spinner("Memuat template lengkap & menulis kolom... (±30–60 detik untuk file besar)"):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -486,9 +514,14 @@ if st.button(f"🚀 Update template — {len(jobs)} laporan", type="primary"):
                                   job["values"], notes or None)
             summary.append({"File": job["file"], "Sheet": job["sheet"], "Periode": job["label"],
                             "Kolom": get_column_letter(job["target_col"]), "Sel terisi": n})
+        if issues:
+            write_issue_sheet(wb, issues, datetime.now())
         out = io.BytesIO()
         wb.save(out)
     st.session_state["output"] = (out.getvalue(), f"template_update_{datetime.now():%Y%m%d_%H%M}.xlsx", summary)
+    st.session_state["output_targets"] = [
+        {"sheet": jobs[fk]["sheet"], "col": jobs[fk]["target_col"], "label": jobs[fk]["label"],
+         "header_row": jobs[fk]["model"].header_row} for fk in order]
 
 if "output" in st.session_state:
     data, fname, summary = st.session_state["output"]
@@ -496,6 +529,28 @@ if "output" in st.session_state:
     st.download_button("⬇️ Download template hasil update (.xlsx)", data=data, file_name=fname,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.caption("Catatan: openpyxl tidak menyimpan ulang chart/gambar yang ada di workbook.")
+
+    with st.expander("🔍 Bandingkan dengan file analis (opsional)"):
+        st.caption("Upload workbook yang sudah dikerjakan analis untuk periode yang sama. Setiap sel input di kolom "
+                   "periode baru dibandingkan dengan output di atas.")
+        up_an = st.file_uploader("Workbook analis (.xlsx)", type=["xlsx", "xlsm"], key="analyst_upload")
+        if up_an is not None:
+            with st.spinner("Membandingkan sel per sel..."):
+                cmp_rows, cmp_sum = compare_workbooks(data, up_an.getvalue(), st.session_state.get("output_targets", []))
+            st.dataframe(pd.DataFrame(cmp_sum), hide_index=True, width="stretch")
+            if cmp_rows:
+                cdf = pd.DataFrame(cmp_rows)
+                show = cdf.drop(columns=["Isi output", "Isi file analis"])
+                for col in ("Output", "File analis", "Selisih"):
+                    show[col] = show[col].map(fmt_num)
+                st.dataframe(show, hide_index=True, width="stretch")
+                st.download_button("⬇️ Download hasil perbandingan (.csv)", data=cdf.to_csv(index=False).encode(),
+                                   file_name="perbandingan_output_vs_analis.csv", mime="text/csv")
+                st.caption("'Hanya di file analis' biasanya data dari luar laporan publikasi (LCR, NSFR, CASA per "
+                           "valuta, write-off) — isi manual. '⚠ sama persis dengan kolom sebelumnya' = rumus di file "
+                           "analis kemungkinan tersalin dari periode lalu.")
+            else:
+                st.success("Semua sel input sama dengan file analis.")
 
 with st.expander("🧠 Memori pola (pasangan manual + resep penjumlahan per bank)"):
     if REMOTE:
