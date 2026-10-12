@@ -503,11 +503,16 @@ class StrictMatcher(Matcher):
         v, _ = self.value_for(tr, sr)
         if v:
             hist = [h for _, h in self.history(tr, 4) if h]
-            if hist and all(h > 0 for h in hist) and self._support(tr, sr) >= 80:
+            expense = "-/-" in sr.label or re.match(r"\s*(beban|kerugian)\b(?!\s*\))", tr.label, re.I)
+            if hist and all(h > 0 for h in hist) and self._support(tr, sr) >= 80 and expense:
                 # template selalu positif (mis. 'Beban bunga' walau laporan menulis '-/-'); hanya untuk
                 # akun yang namanya memang baris itu — komponen tambahan ('Dividen dibayar -/-') tetap negatif
                 v = abs(v)
-            elif v > 0 and ((hist and all(h < 0 for h in hist)) or "-/-" in sr.label):
+            elif v > 0 and ("-/-" in sr.label or (hist and all(h < 0 for h in hist) and re.search(
+                    r"beban|kerugian(?!\s*\))|cadangan|akumulasi|penyusutan|amortisasi|pengurang|dibeli kembali|"
+                    r"belum disetor|dividen", f"{tr.label} {sr.label}", re.I))):
+                # riwayat template negatif -> dibalik hanya untuk akun beban/pengurang; akun untung/rugi
+                # ('Lainnya' di OCI: -10.023 tahun lalu, +71.601 sekarang) tetap ikut tanda laporan
                 v = -v
         return v
 
@@ -637,6 +642,39 @@ class StrictMatcher(Matcher):
                         used.add(x.idx)
                         continue
                     del out[r.row]  # baris itu tidak ikut dijumlah di total template -> pakai '... lainnya'
+
+                # 1b) baris yang rumus acuannya punya komponen yang belum terisi, setanda & sebesar akun ini
+                #     (CKPN Kredit Dec 24 '=-1513432-7588707', kini hanya CKPN kredit -> + CKPN konsumen)
+                slot = None
+                for r in bs_rows:
+                    if r.row in self._formula_rows or side_tpl(r) != side:
+                        continue
+                    ref = r.cells.get(self.ref_cols.get("BS"))
+                    if not (isinstance(ref, str) and re.fullmatch(r"=\s*[-+]?[\d.]+(\s*[-+]\s*[\d.]+)+\s*", ref)):
+                        continue
+                    parts = [float(x) for x in re.findall(r"[-+]?\s*[\d.]+", ref[1:].replace(" ", ""))]
+                    terms = terms_of(r.row) or []
+                    if not terms or len(terms) >= len(parts):
+                        continue
+                    if any(p and (p > 0) == (v > 0) and 0.5 <= v / p <= 2 for p in parts):
+                        slot = r
+                        break
+                if slot is not None:
+                    before = computed().get(t_row.row)
+                    base = terms_of(slot.row)
+                    fb = out.get(slot.row) or {"src": x, "method": "Penyeimbang", "score": 75.0,
+                                                "why": "sesuai pola" if slot.row in recipes else "pola angka tidak tersedia"}
+                    new_vals = base + [v]
+                    fb.update({"value": sum(new_vals), "vals": new_vals,
+                               "formula": "=" + "".join(f"{t:.0f}" if i == 0 else (f"+{t:.0f}" if t >= 0 else f"{t:.0f}")
+                                                        for i, t in enumerate(new_vals))})
+                    fb["why"] += (f"; ditambah '{x.label}' (rumus acuan baris ini punya {len(base) + 1} komponen) "
+                                  "supaya Neraca = laporan")
+                    out[slot.row] = fb
+                    if abs((computed().get(t_row.row) or 0) - (before or 0) - v) <= 1:
+                        filled.add(slot.row)
+                        used.add(x.idx)
+                        continue
 
                 # 2) masuk ke '... lainnya' di sisi yang sama
                 r = others.get(side) or others.get("L" if side == "E" else side)
@@ -1096,7 +1134,38 @@ class StrictMatcher(Matcher):
                     res.method = "Saran nama akun"
                     res.score = round(min(hint[0], 100.0), 1)
             out.append(res)
+        self._fx_into_operating(out)
         return out
+
+    def _fx_into_operating(self, out):
+        """Selisih kurs penjabaran valas di laporan (format OJK) termasuk PENDAPATAN OPERASIONAL, tapi di
+        template baris 'Keuntungan (kerugian) penjabaran transaksi valas' ada di kelompok NON-operasional.
+        Supaya Laba Operasional = laporan, angkanya digabung ke baris 'spot dan derivatif' (cara analis
+        di Sep 24/Sep 25: '=225639+158')."""
+        by_row = {r.row: r for r in out}
+        is_rows = [t for t in self.model.rows if t.section == "IS"]
+        t_op = next((t for t in is_rows if re.match(r"^laba (\(rugi\) )?operasional$", clean_label(t.label))), None)
+        s_op = next((x for x in self.source if x.section == "IS"
+                     and re.match(r"^laba (rugi )?operasional$", clean_label(x.label))), None)
+        if not t_op or not s_op:
+            return
+        t_fx = next((t for t in is_rows if t.row > t_op.row and re.search(r"penjabaran transaksi valuta asing",
+                                                                           clean_label(t.label))), None)
+        t_spot = next((t for t in is_rows if t.row < t_op.row and re.match(r"^keuntungan transaksi spot dan derivatif",
+                                                                           clean_label(t.label))), None)
+        r_fx, r_spot = (by_row.get(t_fx.row) if t_fx else None), (by_row.get(t_spot.row) if t_spot else None)
+        if not r_fx or not r_spot or r_fx.value is None or r_spot.value is None or r_fx.source_idx is None:
+            return
+        if not r_fx.source_idx < s_op.idx:
+            return  # di laporan memang non-operasional
+        fx = r_fx.value
+        r_spot.formula = f"={r_spot.value:.0f}" + (f"+{fx:.0f}" if fx >= 0 else f"{fx:.0f}")
+        r_spot.value = r_spot.value + fx
+        r_spot.note = ((r_spot.note + "; ") if r_spot.note else "") + \
+            f"+ selisih kurs penjabaran valas {fx:,.0f} (di laporan termasuk pendapatan operasional)"
+        r_fx.value, r_fx.formula, r_fx.kind = None, None, "Biasanya kosong"
+        r_fx.method = "Digabung"
+        r_fx.note = f"selisih kurs {fx:,.0f} digabung ke baris {t_spot.row} (spot & derivatif) — di laporan termasuk operasional"
 
     # ------------------------------------------------------------ rasio & NPL
     def run_extra(self):
@@ -1122,10 +1191,16 @@ class StrictMatcher(Matcher):
                 continue
             if is_ref_formula(ref_cell):
                 # pola acuan berupa rumus -> rumus yang sama digeser ke kolom tujuan
-                from .matcher import translate_formula
+                from .matcher import has_data_literals, translate_formula
 
                 res = MatchResult(tr.row, tr.section, tr.label, None, "Nilai", prev)
-                res.formula = translate_formula(ref_cell, ref_col, self.target_col, tr.row)
+                if has_data_literals(ref_cell):
+                    res.note = (f"⚠ rumus periode acuan {ref_label} berisi angka ketikan manual ({ref_cell}) — "
+                                "tidak disalin, isi manual")
+                    out.append(res)
+                    continue
+                res.formula = translate_formula(ref_cell, ref_col, self.target_col, tr.row,
+                                                self.model.parsed_periods(), self.period)
                 res.method, res.score = "Rumus acuan", 100.0
                 res.source_label = f"rumus {ref_label}"
                 res.note = f"rumus periode acuan {ref_label} digeser: {res.formula}"
@@ -1154,6 +1229,21 @@ class StrictMatcher(Matcher):
             tr = next(t for t in self.model.extra_rows if t.row == res.row)
             h = tr.numeric(ref_col)
             fb = self._ratio_by_name(tr, h, ref_per, ratio_pool, used, near=near)
+            if not fb:
+                # analis beralih ke rasio hitungan sendiri di periode terakhir (ROA '=(P444/P376)*100')
+                from .matcher import has_data_literals, translate_formula
+
+                last = [c for c in self.model.filled_cols_before(self.target_col) if tr.cells.get(c) is not None]
+                lc = last[-1] if last else None
+                cell = tr.cells.get(lc) if lc else None
+                if lc and is_ref_formula(cell) and not has_data_literals(cell):
+                    res.formula = translate_formula(cell, lc, self.target_col, tr.row,
+                                                    self.model.parsed_periods(), self.period)
+                    res.method, res.score = "Rumus acuan", 70.0
+                    res.source_label = f"rumus {self.model.period_cols.get(lc)}"
+                    res.note = (f"🟡 angka acuan {h:g} ({ref_label}) tidak ada di laporan; memakai rumus periode "
+                                f"terakhir {self.model.period_cols.get(lc)}: {res.formula} — CEK")
+                    continue
             if fb:
                 s, ci, rv = fb
                 used.add(s.idx)
@@ -1438,6 +1528,7 @@ class StrictMatcher(Matcher):
 
 _RATIO_KW = {
     "ldr": r"loan to deposit|\bldr\b|intermediasi|\brim\b", "bopo": r"bopo|beban operasional terhadap",
+    "cir": r"cost to income|\bcir\b",
     "roa": r"\broa\b|return on asset", "roe": r"\broe\b|return on equity", "nim": r"\bnim\b|net interest margin",
     "npl gross": r"npl gross|gross npl|bruto", "npl net": r"npl net|net npl|neto", "gwm - idr": r"rupiah|gwm utama",
     "gwm - valas": r"valuta asing|valas", "posisi devisa": r"devisa|\bpdn\b",

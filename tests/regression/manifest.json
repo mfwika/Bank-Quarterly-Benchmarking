@@ -14,5 +14,6 @@
   {"file": "BSI_Dec2025_koran.pdf", "sheet": "BSI", "month": 12, "year": 2025, "ocr": true},
   {"file": "Panin_Des2025.pdf", "sheet": "Panin", "month": 12, "year": 2025},
   {"file": "Maybank_Des2025.pdf", "sheet": "BII", "month": 12, "year": 2025},
-  {"file": "Danamon_Des2025.pdf", "sheet": "Danamon", "month": 12, "year": 2025}
+  {"file": "Danamon_Des2025.pdf", "sheet": "Danamon", "month": 12, "year": 2025},
+  {"file": "Danamon_Jun2026.pdf", "sheet": "Danamon", "month": 6, "year": 2026, "after": "Danamon_Des2025.pdf"}
 ]
