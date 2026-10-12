@@ -400,3 +400,100 @@ s/d s/d s/d s/d
 """
     rows = _source_rows(text)
     assert rows[0].cols == [((6, 2026), "IND"), ((6, 2025), "IND"), ((6, 2026), "KONS"), ((6, 2025), "KONS")]
+
+
+def _is_workbook():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["B2"] = "PERHITUNGAN LABA RUGI - Consol"
+    for c, lbl in zip("FGH", ["Dec 24", "Sep 25", "Dec 25"]):
+        ws[f"{c}6"] = lbl
+    for r, lbl, v in [(8, "Pendapatan Bunga", 100), (9, "Beban Bunga", 40), (12, "Pendapatan lainnya", 10),
+                      (13, "Beban lainnya", 5)]:
+        ws[f"C{r}"], ws[f"F{r}"], ws[f"G{r}"] = lbl, v * 1000, v * 1000
+    ws["C10"], ws["C14"] = "Pendapatan Bunga Bersih", "LABA OPERASIONAL"
+    for c in "FGH":
+        ws[f"{c}10"], ws[f"{c}14"] = f"={c}8-{c}9", f"={c}10+{c}12-{c}13"
+    ws["B30"] = "NERACA - Consol"  # template selalu punya seksi Neraca
+    return wb
+
+
+def test_income_new_account_goes_to_other_income_and_unreadable_account_is_derived():
+    from bankbench.pattern import StrictMatcher
+
+    report = """LAPORAN LABA RUGI
+INDIVIDUAL KONSOLIDASIAN
+31 Des 2025 31 Des 2024 31 Des 2025 31 Des 2024
+1. Pendapatan bunga 120.000 100.000 120.000 100.000
+2. Beban bunga
+PENDAPATAN BUNGA BERSIH 70.000 60.000 70.000 60.000
+3. Pendapatan lainnya 12.000 10.000 12.000 10.000
+4. Pendapatan Asuransi - Neto 3.000 - 3.000 -
+5. Beban lainnya 6.000 5.000 6.000 5.000
+LABA (RUGI) OPERASIONAL 79.000 65.000 79.000 65.000
+"""
+    m = build_sheet_model("Sheet", grid_from_worksheet(_is_workbook().active))
+    mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[9].value == 50_000 and res[9].method == "Turunan total"      # 120.000 - 70.000
+    assert res[12].formula == "=12000+3000" and res[12].method == "Penyeimbang"
+    checks = reconcile(mt, {r: x.value for r, x in res.items() if x.value is not None})
+    assert all(c["Status"] == "OK" for c in checks), checks
+
+
+def test_ratio_with_lost_decimal_is_rescaled():
+    from bankbench.pattern import StrictMatcher
+
+    wb = _strict_workbook()
+    m = build_sheet_model("BANKS", grid_from_worksheet(wb["BANKS"]))
+    report = STRICT_REPORT.replace("NPL gross 1,40 1,50", "NPL gross 140 1,50")
+    mt = StrictMatcher(m, _source_rows(report), 8, merged_aliases({}), (12, 2025))
+    res = {r.row: r for r in mt.run()}
+    assert res[60].value == 1.4 and "CEK" in res[60].note
+
+
+def test_reader_header_variants():
+    from bankbench.source_parser import (_heading_section, parse_category_header, parse_date_header,
+                                         parse_year_header)
+
+    # Inggris 'December 31, 2025', catatan audit di header, header tahun saja, judul berspasi per huruf
+    assert parse_date_header("No. DESCRIPTION December 31, 2025 December 31, 2024 December 31, 2025 31 Desember 2024*") \
+        == [(12, 2025), (12, 2024), (12, 2025), (12, 2024)]
+    assert parse_date_header("NO POS - POS 30 JUN 2026 (Direviu) 30 JUN 2025 (Tidak Direviu & Tidak Diaudit)") \
+        == [(6, 2026), (6, 2025)]
+    assert parse_year_header("No. POS-POS 2025 2024") == [2025, 2024]
+    assert parse_year_header("LABA BERSIH PER SAHAM 2015 2020") is None
+    assert _heading_section("L A P O R A N P O S I S I K E U A N G A N") == "BS"
+    assert parse_category_header("Current Mention Standard Doubtful Loss Total") == ["L", "DPK", "KL", "D", "M", "JUMLAH"]
+    assert parse_category_header("Special Sub Special Sub") is None
+
+
+def test_reader_wrapped_label_split_digit_and_year_header():
+    text = """LAPORAN LABA RUGI
+31 Desember 2025 dan 2024
+No. POS-POS 2025 2024
+a. Gain (loss) from adjustments arising resulting from translation of financial
+432,128 47,531
+1. Pendapatan bunga 120.000 4 9.112
+"""
+    rows = _source_rows(text)
+    assert rows[0].label.startswith("Gain (loss) from adjustments") and rows[0].values == [432128.0, 47531.0]
+    assert rows[0].cols == [((12, 2025), None), ((12, 2024), None)]
+    assert rows[1].values == [120000.0, 49112.0]  # '4 9.112' -> 49.112
+
+
+def test_repair_cat_groups_fills_missing_dash():
+    from bankbench.source_parser import _repair_cat_groups
+
+    cats = ["L", "DPK", "KL", "D", "M", "JUMLAH"] * 2
+    # '613.019 - - - 613.019' (satu '-' tidak terbaca) + kelompok 2 lengkap
+    out = _repair_cat_groups([613019, 0, 0, 0, 613019, 345817, 0, 0, 0, 0, 345817], cats)
+    assert out == [613019, 0, 0, 0, 0, 613019, 345817, 0, 0, 0, 0, 345817]
+    assert _repair_cat_groups([1, 2, 3], cats) is None
+
+
+def test_npl_formula_without_divisor_is_recognised():
+    import re
+
+    f = "=(27986+436079+16611637)"
+    assert re.match(r"^=\s*\(?([\d.+\s]+?)\)?()\s*$", f)

@@ -1,4 +1,5 @@
 """Tebak laporan yang di-upload itu milik bank yang mana (-> sheet template)."""
+import os
 import re
 
 from .matcher import Matcher
@@ -11,7 +12,7 @@ BANK_KEYWORDS = {
     "BNI": ["BANK NEGARA INDONESIA"],
     "CIMB": ["CIMB NIAGA"],
     "Panin": ["PAN INDONESIA", "PANIN"],
-    "Permata": ["BANK PERMATA"],
+    "Permata": ["BANK PERMATA", "PERMATABANK"],
     "BII": ["MAYBANK INDONESIA", "BANK INTERNASIONAL INDONESIA", "MAYBANK"],
     "BTN": ["BANK TABUNGAN NEGARA"],
     "OCBC NISP": ["OCBC NISP", "OCBC INDONESIA", "BANK OCBC"],
@@ -26,6 +27,15 @@ BANK_KEYWORDS = {
     "Bangkok": ["BANGKOK BANK"],
 }
 
+# singkatan yang lazim dipakai di nama file ("BNI-Financial-Statement-1H2026.pdf")
+FILE_KEYWORDS = {
+    "Mandiri": ["MANDIRI"], "BRI": ["BRI"], "BCA": ["BCA"], "BNI": ["BNI"], "CIMB": ["CIMB"],
+    "Panin": ["PANIN"], "Permata": ["PERMATA"], "BII": ["MAYBANK", "BII"], "BTN": ["BTN"],
+    "OCBC NISP": ["OCBC", "NISP"], "DBS": ["DBS"], "Mega": ["MEGA"], "Bukopin": ["BUKOPIN", "KBBANK"],
+    "HSBC": ["HSBC"], "Citibank": ["CITI", "CITIBANK"], "Danamon": ["DANAMON"], "BSI": ["BSI"],
+    "BTPN inc SMBC": ["BTPN", "SMBC"], "Bangkok": ["BANGKOK"],
+}
+
 
 def _keywords_for(model):
     kws = list(BANK_KEYWORDS.get(model.name, []))
@@ -35,20 +45,38 @@ def _keywords_for(model):
     return kws
 
 
-def detect_bank(text: str, source_rows, models: dict, aliases: dict):
-    """Skor tiap sheet = kecocokan nama bank di teks laporan + jumlah angka laporan
-    yang persis sama dengan histori sheet tsb (paling bisa diandalkan).
+def detect_bank(text: str, source_rows, models: dict, aliases: dict, filename: str = ""):
+    """Skor tiap sheet = jumlah angka laporan yang persis sama dengan histori sheet tsb (paling bisa
+    diandalkan) + nama bank di judul tabel ('PT Bank ...'), di teks laporan, dan di nama file.
+    Laporan hasil scan (OCR) sering tanpa teks -> judul tabel hasil OCR & nama file jadi penentu.
     Return list (sheet, skor, alasan) urut dari skor tertinggi."""
     head = re.sub(r"\s+", " ", (text or "")[:20000].upper())
+    titles = re.sub(r"\s+", " ", " ".join(sorted({(getattr(r, "company", None) or "") for r in source_rows})).upper())
+    ftoks = set(re.findall(r"[A-Z]+", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", os.path.basename(filename or "")).upper()))
     out = []
     for name, model in models.items():
-        kw_hits = sum(head.count(k) for k in _keywords_for(model))
+        kws = _keywords_for(model)
+        kw_hits = sum(head.count(k) for k in kws)
+        title_hit = any(k in titles for k in kws)
+        file_hit = bool(ftoks & set(FILE_KEYWORDS.get(name, [])))
         latest = model.latest_period()
-        m = Matcher(model, source_rows, model.last_period_col() + 1, aliases, period=(12, 1900))
-        anchors = len(m._find_anchors(1.0))
-        score = anchors * 2 + min(kw_hits, 5) * 10 + ((latest[1] * 12 + latest[0]) / 1e4 if latest else 0)
-        reason = f"{anchors} angka cocok dgn histori, nama bank {'ditemukan' if kw_hits else 'tidak ditemukan'}"
-        out.append((name, score, reason))
+        # kolom setelah periode TERBARU (bukan kolom paling kanan: ada sheet dengan kolom catatan
+        # 'Dec 18' jauh di kanan berisi rumus)
+        lc = model.find_period_col(*latest) if latest else None
+        m = Matcher(model, source_rows, (lc or model.last_period_col()) + 1, aliases, period=(12, 1900))
+        anchors = max(len(m._find_anchors(sc)) for sc in (1.0, 0.001, 1000.0))  # laporan juta vs template miliar
+        score = (anchors * 2 + min(kw_hits, 5) * 10 + title_hit * 30 + file_hit * 25
+                 + ((latest[1] * 12 + latest[0]) / 1e4 if latest else 0))
+        why = [f"{anchors} angka cocok dgn histori"]
+        if title_hit:
+            why.append("nama bank di judul tabel")
+        if kw_hits:
+            why.append("nama bank di teks")
+        if file_hit:
+            why.append("nama file")
+        if len(why) == 1:
+            why.append("nama bank tidak ditemukan")
+        out.append((name, score, ", ".join(why)))
     out.sort(key=lambda x: x[1], reverse=True)
     return out
 
