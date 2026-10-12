@@ -82,3 +82,21 @@ def apply_to_workbook(wb, model: SheetModel, target_col: int, period_label: str,
         if notes and notes.get(r):
             cell.comment = Comment(notes[r], "Auto-Update Benchmarking")
     return written
+
+
+ISSUE_SHEET = "_Cek_AutoUpdate"
+
+
+def write_issue_sheet(wb, issues, when):
+    """Daftar BEDA / baris kosong yang dikonfirmasi pengguna saat generate -> sheet tersendiri."""
+    if ISSUE_SHEET in wb.sheetnames:
+        del wb[ISSUE_SHEET]
+    ws = wb.create_sheet(ISSUE_SHEET)
+    ws.append([f"Dibuat {when:%Y-%m-%d %H:%M} — masalah yang dikonfirmasi pengguna untuk dicek manual"])
+    cols = ["File", "Sheet", "Periode", "Baris", "Akun", "Masalah", "Keterangan"]
+    ws.append(cols)
+    for i in issues:
+        ws.append([i.get(c) for c in cols])
+    for letter, width in zip("ABCDEFG", (34, 16, 10, 8, 48, 22, 80)):
+        ws.column_dimensions[letter].width = width
+    return ws
