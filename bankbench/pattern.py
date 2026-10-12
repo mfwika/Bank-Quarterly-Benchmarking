@@ -503,8 +503,10 @@ class StrictMatcher(Matcher):
         v, _ = self.value_for(tr, sr)
         if v:
             hist = [h for _, h in self.history(tr, 4) if h]
-            if hist and all(h > 0 for h in hist):
-                v = abs(v)  # template selalu positif (mis. 'Beban bunga' walau laporan menulis '-/-')
+            if hist and all(h > 0 for h in hist) and self._support(tr, sr) >= 80:
+                # template selalu positif (mis. 'Beban bunga' walau laporan menulis '-/-'); hanya untuk
+                # akun yang namanya memang baris itu — komponen tambahan ('Dividen dibayar -/-') tetap negatif
+                v = abs(v)
             elif v > 0 and ((hist and all(h < 0 for h in hist)) or (not hist and "-/-" in sr.label)):
                 v = -v
         return v
