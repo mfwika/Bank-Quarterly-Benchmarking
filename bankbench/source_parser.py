@@ -59,7 +59,7 @@ def _heading_section(text: str):
     if not titled and sum(1 for c in letters if c.isupper()) / len(letters) < 0.75:
         return None
     u = text.upper()
-    if re.search(r"\bUUS\b|UNIT USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", u):
+    if re.search(r"\bUUS\b|(UNIT|BISNIS) USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", u):
         return "OTHER"  # laporan Unit Usaha Syariah: bukan laporan bank secara keseluruhan
     for key, pat in SECTION_PATTERNS:
         if pat.search(u):
@@ -354,7 +354,7 @@ class _RowBuilder:
         self.page = page
         self.company = None  # nama perusahaan di judul tabel berlaku sampai akhir halaman
         # halaman Unit Usaha Syariah (judul kecil di atas 'LAPORAN POSISI KEUANGAN') -> abaikan sehalaman
-        self.uus_page = bool(re.search(r"\bUUS\b|UNIT USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", head_text.upper()))
+        self.uus_page = bool(re.search(r"\bUUS\b|(UNIT|BISNIS) USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT", head_text.upper()))
         if self.uus_page:
             self.heading("OTHER")
 
@@ -379,7 +379,7 @@ class _RowBuilder:
         return parent
 
     def heading(self, section):
-        if getattr(self, "uus_page", False):
+        if getattr(self, "uus_page", False) or getattr(self, "uus_block", False):
             section = "OTHER"
         if section != self.section:
             # tabel baru -> header kolom lama tidak berlaku lagi
@@ -526,7 +526,13 @@ def split_segments(line: str):
     return [line]
 
 
+_UUS_RE = re.compile(r"\bUUS\b|(UNIT|BISNIS) USAHA SYARIAH|SHARIA BUSINESS UNIT|SHARIA UNIT")
+
+
 def _feed_text(builder: _RowBuilder, text: str):
+    # judul 'INFORMASI KEUANGAN BISNIS USAHA SYARIAH' di halaman koran: semua tabel di bawahnya (Neraca,
+    # Laba Rugi UUS, dst. dengan sub-judulnya sendiri) bukan laporan bank -> berlaku sampai akhir blok
+    builder.uus_block = False
     lines = []
     for raw in text.split("\n"):
         raw = raw.strip()
@@ -537,6 +543,10 @@ def _feed_text(builder: _RowBuilder, text: str):
         else:
             lines.extend(split_segments(raw))
     for line in lines:
+        if not builder.uus_block and _UUS_RE.search(line.upper()) and _heading_section(line) == "OTHER":
+            builder.uus_block = True
+            builder.heading("OTHER")
+            continue
         if builder.header_line(line):
             continue
         token, label, values = split_label_values(line)

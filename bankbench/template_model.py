@@ -37,7 +37,7 @@ _HEAD_CAP = re.compile(r"CAPITAL ADEQUACY|PENYEDIAAN MODAL MINIMUM|KPMM")
 _CAP_LAST_ROW = re.compile(r"rasio kewajiban penyediaan modal|rasio kpmm", re.I)
 
 _RATIO_ROW = re.compile(
-    r"^(LDR|BOPO|ROA|ROE|NIM|NPL Gross|NPL Net)\b.*\(%\)|^GWM\b|^Posisi Devisa Neto", re.I)
+    r"^(LDR|BOPO|ROA|ROE|NIM|NPL Gross|NPL Net|CIR)\b.*\(%\)|^GWM\b|^Posisi Devisa Neto", re.I)
 _NPL_ROW = re.compile(r"^(Current|Special Mention|NPL)\b", re.I)
 
 _SKIP_LABELS = {"no", "pos-pos", "pos - pos", "in million rp", "in million rp / percentage (%)"}
@@ -310,6 +310,8 @@ def build_sheet_model(name, grid):
             if enum is None and label[:1].islower() and rows and rows[-1].section == key and rows[-1].row >= r - 1:
                 prev = rows[-1]
                 prev.label = f"{prev.label} {label}"
+                if not prev.cells and any(_cell(grid, r, c) is not None for c in range(first_pc, MAX_COLS + 1)):
+                    prev.row = r  # angkanya di baris lanjutan (Danamon 192/193) -> tulis ke baris itu
                 for c in range(first_pc, MAX_COLS + 1):
                     v = _cell(grid, r, c)
                     if v is not None and prev.cells.get(c) is None:
@@ -368,6 +370,23 @@ def build_sheet_model(name, grid):
     if first_npl:
         extra = [r for r in extra if r.section == "NPL" or r.row < first_npl]
     extra = [r for r in extra if not re.search(r"by currency|analyst", r.label, re.I)]
+    if not any(r.section == "NPL" for r in extra):
+        # format lain (Danamon): judul 'Asset Quality (IDR tio)' lalu Current / Special Mention / NPL.
+        # Dicari setelah penyaringan di atas supaya blok rasio di bawahnya tetap ikut.
+        zone = None
+        for r in range(cap_end + 1, len(grid) + 1):
+            label, _, _ = _row_texts(grid, r, first_pc)
+            if not label:
+                continue
+            if re.match(r"^asset quality\b", label, re.I):
+                zone = r
+            elif zone and r - zone <= 4 and _NPL_ROW.match(label):
+                cells = {c: _cell(grid, r, c) for c in range(first_pc, MAX_COLS + 1)}
+                extra.append(TemplateRow(row=r, label=label, section="NPL", level=1,
+                                         cells={c: v for c, v in cells.items() if v is not None}))
+            elif zone and r - zone > 4:
+                break
+        extra.sort(key=lambda t: t.row)
 
     return SheetModel(
         name=name,
