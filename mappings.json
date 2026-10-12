@@ -1,0 +1,172 @@
+{
+  "_conventions": {
+    "BS": {
+      "pendapatan kerugian komprehensif lainnya": [
+        "keuntungan"
+      ],
+      "tahun tahun lalu": [
+        "dividen yang dibayarkan"
+      ]
+    },
+    "IS": {
+      "lainnya": [
+        "lainnya"
+      ]
+    }
+  },
+  "_recipes": {
+    "Danamon": {
+      "101": [
+        "Tahun-tahun lalu",
+        "Dividen yang dibayarkan -/-"
+      ],
+      "102": [
+        "Tahun berjalan"
+      ],
+      "12": [
+        "Surat berharga yang dimiliki"
+      ],
+      "128": [
+        "Keuntungan (kerugian) dari peningkatan (penurunan) nilai wajar aset keuangan"
+      ],
+      "135": [
+        "Keuntungan (kerugian) dari penjualan aset keuangan"
+      ],
+      "138": [
+        "Keuntungan (kerugian) dari transaksi spot dan derivatif (realised)"
+      ],
+      "140": [
+        "Pendapatan dividen"
+      ],
+      "143": [
+        "Pendapatan lainnya"
+      ],
+      "163": [
+        "Kerugian terkait risiko operasional -/-"
+      ],
+      "168": [
+        "Beban promosi -/-"
+      ],
+      "17": [
+        "Surat berharga yang dijual dengan janji dibeli kembali (repo)"
+      ],
+      "175": [
+        "Keuntungan (kerugian) penjualan aset tetap dan inventaris"
+      ],
+      "176": [
+        "Keuntungan (kerugian) dari penjabaran transaksi valuta asing"
+      ],
+      "177": [
+        "Pendapatan dividen",
+        "Lainnya",
+        "Keuntungan (kerugian) dari penjabaran transaksi valuta asing",
+        "Keuntungan/kerugian penjabaran transaksi valuta asing"
+      ],
+      "18": [
+        "Tagihan atas surat berharga yang dibeli dengan janji dijual kembali (reverse repo)"
+      ],
+      "185": [
+        "Pendapatan (beban) pajak tangguhan"
+      ],
+      "19": [
+        "Tagihan akseptasi"
+      ],
+      "192": [
+        "Keuntungan (kerugian) dari perubahan nilai wajar aset keuangan instrumen hutang yang diukur pada nilai wajar melalui penghasilan komprehensif lain"
+      ],
+      "199": [
+        "Lainnya",
+        "Beban tenaga kerja -/-",
+        "Keuntungan (kerugian) penjualan aset tetap dan inventaris"
+      ],
+      "215": [
+        "DIVIDEN"
+      ],
+      "25": [
+        "Pembiayaan syariah"
+      ],
+      "28": [
+        "Surat berharga yang dimiliki"
+      ],
+      "29": [
+        "Kredit yang diberikan dan pembiayaan syariah**)"
+      ],
+      "293": [
+        "Modal disetor (Setelah dikurangi Treasury Stock)"
+      ],
+      "30": [
+        "Lainnya"
+      ],
+      "34": [
+        "Akumulasi penyusutan aset tetap dan inventaris -/-"
+      ],
+      "353": [
+        "ATMR RISIKO OPERASIONAL"
+      ],
+      "354": [
+        "ATMR RISIKO PASAR"
+      ],
+      "36": [
+        "Properti terbengkalai"
+      ],
+      "37": [
+        "Agunan yang diambil alih"
+      ],
+      "38": [
+        "Rekening tunda"
+      ],
+      "43": [
+        "Sewa pembiayaan"
+      ],
+      "52": [
+        "Tabungan"
+      ],
+      "53": [
+        "Deposito"
+      ],
+      "56": [
+        "Liabilitas kepada bank lain"
+      ],
+      "57": [
+        "Liabilitas spot dan derivatif/forward"
+      ],
+      "58": [
+        "Liabilitas atas surat berharga yang dijual dengan janji dibeli kembali (repo)"
+      ],
+      "59": [
+        "Liabilitas akseptasi"
+      ],
+      "60": [
+        "Surat berharga yang diterbitkan"
+      ],
+      "64": [
+        "Setoran jaminan"
+      ],
+      "74": [
+        "Modal dasar"
+      ],
+      "75": [
+        "Modal yang belum disetor -/-"
+      ],
+      "78": [
+        "Agio"
+      ],
+      "8": [
+        "Kas"
+      ],
+      "82": [
+        "Lainnya"
+      ],
+      "83": [
+        "Kerugian -/-",
+        "Keuntungan"
+      ],
+      "9": [
+        "Penempatan pada Bank Indonesia"
+      ],
+      "98": [
+        "Cadangan umum"
+      ]
+    }
+  }
+}
