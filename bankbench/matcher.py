@@ -617,12 +617,45 @@ def _col_idx(letters):
     return n
 
 
-def translate_formula(formula: str, src_col: int, dst_col: int, row: int) -> str:
+def translate_formula(formula: str, src_col: int, dst_col: int, row: int, periods: dict | None = None,
+                      dst_period: tuple | None = None) -> str:
+    """Geser rumus dari kolom src ke dst. Kalau `periods` (kolom -> (bulan, tahun)) diberikan, referensi
+    absolut ke 'Desember tahun lalu' ikut maju: '=O358-$M$358' (Jun 25 - Dec 24) di Jun 26 jadi
+    '=R358-$Q$358' (Jun 26 - Dec 25), bukan tetap ke Dec 24."""
     from openpyxl.formula.translate import Translator
-    from openpyxl.utils import get_column_letter
+    from openpyxl.utils import column_index_from_string, get_column_letter
 
-    return Translator(formula, origin=f"{get_column_letter(src_col)}{row}").translate_formula(
+    out = Translator(formula, origin=f"{get_column_letter(src_col)}{row}").translate_formula(
         f"{get_column_letter(dst_col)}{row}")
+    if not periods:
+        return out
+    ps = periods.get(src_col)
+    pd = dst_period or periods.get(dst_col)
+    if not ps or not pd:
+        return out
+    by_period = {p: c for c, p in periods.items()}
+
+    def roll(m):
+        col = column_index_from_string(m.group(1))
+        pa = periods.get(col)
+        if pa == (12, ps[1] - 1) and (12, pd[1] - 1) in by_period:
+            return f"${get_column_letter(by_period[(12, pd[1] - 1)])}{m.group(2)}"
+        return m.group(0)
+
+    return re.sub(r"\$([A-Z]{1,3})(\$?\d+)", roll, out)
+
+
+_DATA_LITERAL = re.compile(r"(?<![A-Za-z$\d.])(\d{4,}(?:\.\d+)?)")
+
+
+def has_data_literals(formula) -> bool:
+    """Rumus yang mencampur referensi sel dengan angka hasil ketik manual periode itu
+    ('=(514028+338632+3481412)*P434'): angkanya data periode lalu, jangan disalin ke periode baru.
+    Pembagi/pengali bulat (1000, 1000000) tidak dihitung."""
+    if not (isinstance(formula, str) and formula.startswith("=")):
+        return False
+    nums = [n for n in _DATA_LITERAL.findall(formula) if not re.fullmatch(r"10*", n.split(".")[0])]
+    return bool(nums) and bool(re.search(r"\$?[A-Z]{1,3}\$?\d+", formula))
 
 
 def evaluate_column(model: SheetModel, target_col: int, ref_col: int, values: dict):

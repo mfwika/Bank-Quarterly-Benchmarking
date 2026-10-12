@@ -5,7 +5,7 @@ from datetime import datetime
 from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
 
-from .matcher import translate_formula
+from .matcher import has_data_literals, translate_formula
 from .periods import quarter_end
 from .template_model import SheetModel, is_ref_formula
 
@@ -44,6 +44,8 @@ def apply_to_workbook(wb, model: SheetModel, target_col: int, period_label: str,
         header.value = period_label
         _copy_style(ws.cell(model.header_row, ref_col), header)
 
+    periods = model.parsed_periods()
+    stale = []
     for r in range(1, ws.max_row + 1):
         if r == model.header_row:
             continue
@@ -52,7 +54,10 @@ def apply_to_workbook(wb, model: SheetModel, target_col: int, period_label: str,
         if is_new:
             _copy_style(src, dst)
         if dst.value is None and is_ref_formula(src.value):
-            dst.value = translate_formula(src.value, ref_col, target_col, r)
+            if has_data_literals(src.value) and r not in values:
+                stale.append(r)  # angka ketikan periode lalu di dalam rumus -> jangan disalin
+                continue
+            dst.value = translate_formula(src.value, ref_col, target_col, r, periods, (month, year))
 
     ann = model.special_rows.get("annualizer")
     if ann:
@@ -61,6 +66,11 @@ def apply_to_workbook(wb, model: SheetModel, target_col: int, period_label: str,
     if date_row:
         d = quarter_end(month, year)
         ws.cell(date_row, target_col).value = datetime(d.year, d.month, d.day)
+
+    for r in stale:
+        ws.cell(r, target_col).comment = Comment(
+            f"Rumus periode lalu berisi angka yang diketik manual ({ws.cell(r, ref_col).value}); "
+            "tidak disalin supaya angka lama tidak terbawa — isi manual.", "Auto-Update Benchmarking")
 
     written = 0
     for r, v in values.items():

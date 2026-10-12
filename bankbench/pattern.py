@@ -1122,10 +1122,16 @@ class StrictMatcher(Matcher):
                 continue
             if is_ref_formula(ref_cell):
                 # pola acuan berupa rumus -> rumus yang sama digeser ke kolom tujuan
-                from .matcher import translate_formula
+                from .matcher import has_data_literals, translate_formula
 
                 res = MatchResult(tr.row, tr.section, tr.label, None, "Nilai", prev)
-                res.formula = translate_formula(ref_cell, ref_col, self.target_col, tr.row)
+                if has_data_literals(ref_cell):
+                    res.note = (f"⚠ rumus periode acuan {ref_label} berisi angka ketikan manual ({ref_cell}) — "
+                                "tidak disalin, isi manual")
+                    out.append(res)
+                    continue
+                res.formula = translate_formula(ref_cell, ref_col, self.target_col, tr.row,
+                                                self.model.parsed_periods(), self.period)
                 res.method, res.score = "Rumus acuan", 100.0
                 res.source_label = f"rumus {ref_label}"
                 res.note = f"rumus periode acuan {ref_label} digeser: {res.formula}"
