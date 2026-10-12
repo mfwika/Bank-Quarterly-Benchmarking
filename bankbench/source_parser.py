@@ -756,12 +756,12 @@ def _layout_blocks(page, v2=False):
                      and not (v2 and label and sg["x0"] > g["numx"] + 2 and any(
                          g["numx"] < h["x"] <= sg["x0"] + 15 and h["ymin"] - 80 <= sg["top"] <= h["ymax"] + 20
                          for h in cols_def))
-                     and not (v2 and label and lo == 2 and sg["x0"] > g["numx1"] + 8)]
+                     and not (v2 and label and sg["x0"] > g["numx1"] + 8)]
             if cands:
                 return max(cands, key=lambda i: cols_def[i]["x"])
-            if v2 and label and lo == 2 and any(g["x"] <= sg["x0"] + 15 and g["ymin"] - 2 <= sg["top"] <= g["ymax"] + 2
-                                         for g in cols_def):
-                return None  # teks di kanan angka tabel (daftar pengurus/pemegang saham) -> blok sendiri
+        if v2 and label and any(g["x"] <= sg["x0"] + 15 and g["ymin"] - 80 <= sg["top"] <= g["ymax"] + 20
+                                for g in cols_def):
+            return None  # teks di kanan angka tabel (daftar pengurus/pemegang saham) -> blok sendiri
         cands = [i for i, g in enumerate(cols_def) if g["x"] <= sg["x0"] + 15] or [0]
         return max(cands, key=lambda i: cols_def[i]["x"])
 
