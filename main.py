@@ -549,8 +549,11 @@ if "output" in st.session_state:
                 st.caption("'Hanya di file analis' biasanya data dari luar laporan publikasi (LCR, NSFR, CASA per "
                            "valuta, write-off) — isi manual. '⚠ sama persis dengan kolom sebelumnya' = rumus di file "
                            "analis kemungkinan tersalin dari periode lalu.")
-            else:
+            elif any(x.get("Sama") is not None for x in cmp_sum):
                 st.success("Semua sel input sama dengan file analis.")
+            else:
+                st.warning("Tidak ada sheet/kolom periode yang bisa dibandingkan — cek nama sheet dan judul kolom "
+                           "periode di file analis (lihat Keterangan di tabel atas).")
 
 with st.expander("🧠 Memori pola (pasangan manual + resep penjumlahan per bank)"):
     if REMOTE:
