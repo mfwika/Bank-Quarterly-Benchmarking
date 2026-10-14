@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consulting Academy</title>
+  <meta name="description" content="Offline, gamified training for consulting interviews: frameworks, interactive case studies, behavioural questions and mental math.">
+  <meta name="theme-color" content="#1f4fd1">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="logo" href="#/"><span class="logo-mark">CA</span><span>Consulting Academy</span></a>
+      <nav class="nav" aria-label="Main">
+        <a href="#/" data-nav="home">Home</a>
+        <a href="#/learn" data-nav="learn">Frameworks</a>
+        <a href="#/cases" data-nav="cases">Cases</a>
+        <a href="#/behavioral" data-nav="behavioral">Behavioural</a>
+        <a href="#/math" data-nav="math">Mental Math</a>
+        <a href="#/daily" data-nav="daily">Daily</a>
+        <a href="#/profile" data-nav="profile">Badges</a>
+      </nav>
+      <div class="hud">
+        <div class="hud" id="hud" aria-live="polite"></div>
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Toggle dark mode">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1"></main>
+
+  <footer class="footer">Consulting Academy · works fully offline · progress is saved in this browser only</footer>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <noscript><p style="padding:16px">Please enable JavaScript to use Consulting Academy.</p></noscript>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

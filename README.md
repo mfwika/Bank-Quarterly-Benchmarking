@@ -140,3 +140,9 @@ Hasil regresi terakhir: **0 defect di 16 laporan dari 13 bank** (`python -m bank
   Memori dibaca dari repo saat app mulai, dan tombol **💾 Simpan memori pola** menyimpannya lagi
   (digabung dengan isi repo, tidak menimpa). Tanpa secrets: download mappings.json lalu upload lagi
   di sesi berikutnya (expander *Memori pola*).
+
+---
+
+## Bonus: Consulting Academy
+
+Folder [`consulting-academy/`](consulting-academy/) berisi situs latihan *consulting interview* yang bisa dipakai **offline** (frameworks, studi kasus interaktif, pertanyaan behavioral, mental math, plus XP/level/badge). Cukup buka `consulting-academy/index.html` di browser.
