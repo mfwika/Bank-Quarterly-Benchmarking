@@ -317,6 +317,9 @@ details.sample summary { cursor: pointer; font-weight: 700; }
 }
 
 /* ---------- Responsive ---------- */
+@media (max-width: 1320px) {
+  .hud-pill.hide-sm { display: none; }
+}
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; }
   .lesson { grid-template-columns: 1fr; }

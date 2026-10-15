@@ -20,7 +20,7 @@
       stories: [],        // { id, qid, s, t, a, r, score, date }
       practiced: {},      // questionId -> true (XP already given)
       drafts: {},         // questionId -> { s, t, a, r }
-      math: { best: 0, runs: 0, total: 0 },
+      math: { best: 0, runs: 0, total: 0, duration: 60, types: null, bests: {} },
       daily: {},          // date -> { score, answers }
       quizPerfect: false,
       streak: { count: 0, best: 0, last: null },
@@ -72,6 +72,12 @@
     rnd = rnd || Math.random;
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
     return a;
+  }
+  /* Display order for answer options, so the right answer isn't always in the same slot. */
+  function order(n, rnd) {
+    const idx = [];
+    for (let i = 0; i < n; i++) idx.push(i);
+    return shuffle(idx, rnd);
   }
   function seeded(seedStr) {
     let h = 1779033703 ^ seedStr.length;
@@ -302,7 +308,7 @@
         moduleCard("#/learn", "🗂️", "Frameworks", "MECE, issue trees, profitability, market entry, M&A, pricing and more.", lessonsDone, D.frameworks.length, "lessons") +
         moduleCard("#/cases", "💼", "Case studies", "Interactive cases: clarify, structure, crunch exhibits, recommend.", casesDone, D.cases.length, "cases") +
         moduleCard("#/behavioral", "🎤", "Behavioural", "STAR method, the classic questions, a timer and your story bank.", Math.min(S.stories.length, 8), 8, "stories (aim for 8)") +
-        moduleCard("#/math", "🧮", "Mental math", "60-second sprints on percentages, zeros, growth and breakeven.", Math.min(S.math.best, 20), 20, "best score (target 20)") +
+        moduleCard("#/math", "🧮", "Mental math", "Timed sprints (you set the clock) on percentages, zeros, growth and breakeven.", Math.min(S.math.best, 20), 20, "best score (target 20)") +
         moduleCard("#/daily", "🎯", "Daily challenge", "5 fresh questions every day. Keep the streak alive.", dailyDone ? 1 : 0, 1, "done today") +
         moduleCard("#/profile", "🏅", "Badges & profile", "Track achievements, back up or restore progress.", badgeCount, D.badges.length, "badges") +
       "</div></section>" +
@@ -356,10 +362,11 @@
     function quizHTML() {
       return f.quiz.map(function (q, qi) {
         const a = S.quiz[f.id + ":" + qi];
-        const opts = q.options.map(function (o, oi) {
+        const opts = order(q.options.length, seeded(f.id + ":" + qi)).map(function (oi, pos) {
+          const o = q.options[oi];
           let cls = "";
           if (a) { if (oi === q.answer) cls = "correct"; else if (oi === a.choice) cls = "wrong"; }
-          return '<button class="opt ' + cls + '" data-q="' + qi + '" data-o="' + oi + '"' + (a ? " disabled" : "") + '><span class="key">' + letter(oi) + "</span><span>" + esc(o) + "</span></button>";
+          return '<button class="opt ' + cls + '" data-q="' + qi + '" data-o="' + oi + '"' + (a ? " disabled" : "") + '><span class="key">' + letter(pos) + "</span><span>" + esc(o) + "</span></button>";
         }).join("");
         const fb = a ? '<div class="feedback ' + (a.correct ? "good" : "bad") + '">' + (a.correct ? "✅ Correct. " : "❌ Not quite. ") + esc(q.explain) + "</div>" : "";
         return '<div class="q-block"><div class="q-title">' + (qi + 1) + ". " + esc(q.q) + '</div><div class="options">' + opts + "</div>" + fb + "</div>";
@@ -470,15 +477,16 @@
 
     function render() {
       const step = c.steps[run.i];
-      const st = run.state[run.i] || (run.state[run.i] = { answered: false, choice: null, selected: [], attempts: 0, value: "", firstOk: false });
+      const st = run.state[run.i] || (run.state[run.i] = { answered: false, choice: null, selected: [], attempts: 0, value: "", firstOk: false, order: step.options ? order(step.options.length) : [] });
       let body = "";
       let fb = "";
 
       if (step.kind === "mcq") {
-        body = '<div class="options">' + step.options.map(function (o, oi) {
+        body = '<div class="options">' + st.order.map(function (oi, pos) {
+          const o = step.options[oi];
           let cls = "";
           if (st.answered) { if (o.correct) cls = "correct"; else if (oi === st.choice) cls = "wrong"; }
-          return '<button class="opt ' + cls + '" data-o="' + oi + '"' + (st.answered ? " disabled" : "") + '><span class="key">' + letter(oi) + "</span><span>" + esc(o.text) + "</span></button>";
+          return '<button class="opt ' + cls + '" data-o="' + oi + '"' + (st.answered ? " disabled" : "") + '><span class="key">' + letter(pos) + "</span><span>" + esc(o.text) + "</span></button>";
         }).join("") + "</div>";
         if (st.answered) {
           const ch = step.options[st.choice];
@@ -490,11 +498,12 @@
           if (step.reveal) fb += '<div class="interviewer">🗣️ ' + esc(step.reveal) + "</div>";
         }
       } else if (step.kind === "multi") {
-        body = '<div class="options">' + step.options.map(function (o, oi) {
+        body = '<div class="options">' + st.order.map(function (oi, pos) {
+          const o = step.options[oi];
           const sel = st.selected.indexOf(oi) >= 0;
           let cls = sel ? "selected" : "";
           if (st.answered) cls = o.correct && sel ? "correct" : !o.correct && sel ? "wrong" : o.correct ? "missed" : "";
-          return '<button class="opt ' + cls + '" data-o="' + oi + '" aria-pressed="' + sel + '"' + (st.answered ? " disabled" : "") + '><span class="key">' + (sel ? "✓" : letter(oi)) + "</span><span>" + esc(o.text) + "</span></button>";
+          return '<button class="opt ' + cls + '" data-o="' + oi + '" aria-pressed="' + sel + '"' + (st.answered ? " disabled" : "") + '><span class="key">' + (sel ? "✓" : letter(pos)) + "</span><span>" + esc(o.text) + "</span></button>";
         }).join("") + "</div>";
         if (!st.answered) body += '<div class="btn-row"><button class="btn" id="submitMulti"' + (st.selected.length ? "" : " disabled") + ">Submit selection</button></div>";
         else fb = '<div class="feedback ' + (st.firstOk ? "good" : "bad") + '">' + (st.firstOk ? "✅ Spot on. " : "❌ Not quite — dashed outlines show levers you missed. ") + esc(step.explain) + "</div>";
@@ -762,73 +771,131 @@
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
   const generators = [
-    function pct() {
+    { key: "pct", label: "% of", make: function () {
       const p = pick([5, 10, 15, 20, 25, 30, 40, 50, 60, 75]);
       const base = randInt(2, 40) * 20;
       return { q: p + "% of " + fmt(base), a: (p * base) / 100 };
-    },
-    function zeros() {
+    } },
+    { key: "zeros", label: "× with zeros", make: function () {
       const a = randInt(2, 9) * Math.pow(10, randInt(1, 4));
       const b = randInt(2, 9) * Math.pow(10, randInt(1, 3));
-      return { q: fmt(a) + " × " + fmt(b), a: a * b, hint: "Use k / m / b shortcuts" };
-    },
-    function divide() {
+      return { q: fmt(a) + " × " + fmt(b), a: a * b };
+    } },
+    { key: "divide", label: "Division", make: function () {
       const b = pick([4, 5, 6, 8, 12, 15, 20, 25, 40, 50, 60]);
       const ans = randInt(3, 60) * pick([1, 10, 100]);
       return { q: fmt(ans * b) + " ÷ " + b, a: ans };
-    },
-    function growth() {
+    } },
+    { key: "growth", label: "% change", make: function () {
       const from = pick([40, 50, 80, 100, 120, 200, 250, 400]);
       const g = pick([-50, -25, -20, -10, 10, 20, 25, 50, 75, 100]);
       const to = (from * (100 + g)) / 100;
       return { q: fmt(from) + " → " + fmt(to) + ": % change?", a: g, unit: "%" };
-    },
-    function breakeven() {
+    } },
+    { key: "breakeven", label: "Breakeven", make: function () {
       const m = pick([5, 10, 20, 25, 40, 50]);
       const units = randInt(2, 40) * 1000;
       return { q: "Fixed cost $" + fmt(m * units) + ", margin $" + m + "/unit → breakeven units?", a: units };
-    },
-    function margin() {
+    } },
+    { key: "margin", label: "Margin %", make: function () {
       const rev = pick([200, 400, 500, 800, 1000, 1200]);
       const pctv = pick([5, 10, 15, 20, 25, 30, 40]);
       return { q: "Revenue $" + fmt(rev) + "M, profit $" + fmt((rev * pctv) / 100) + "M → margin %?", a: pctv, unit: "%" };
-    }
+    } }
   ];
 
+  const TIME_PRESETS = [30, 60, 120, 180, 300, 0]; // 0 = untimed
+  const MIN_TIME = 10, MAX_TIME = 1800;
+
+  function fmtDuration(sec) {
+    if (!sec) return "Untimed";
+    if (sec < 60) return sec + " sec";
+    return sec % 60 ? Math.floor(sec / 60) + " min " + (sec % 60) + " sec" : sec / 60 + " min";
+  }
+  function clock(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ":" + pad(sec % 60); }
+
   function viewMath() {
-    const DURATION = 60;
-    const game = { running: false, score: 0, wrong: 0, left: DURATION, cur: null, log: [], iv: null, end: 0 };
+    if (typeof S.math.duration !== "number") S.math.duration = 60;
+    if (!S.math.bests || typeof S.math.bests !== "object") S.math.bests = {};
+    const enabledTypes = function () {
+      const t = Array.isArray(S.math.types) ? S.math.types : [];
+      const valid = generators.filter(function (g) { return t.indexOf(g.key) >= 0; });
+      return valid.length ? valid : generators;
+    };
+    const game = { running: false, score: 0, wrong: 0, cur: null, log: [], iv: null, start: 0, end: 0, duration: 60 };
     onLeave(function () { clearInterval(game.iv); });
 
     function intro(result) {
+      const d = S.math.duration;
+      const types = enabledTypes();
+      const best = d ? S.math.bests[d] || 0 : null;
       main.innerHTML =
-        '<div class="page-head"><h1>Mental Math Arena</h1><p>Consulting interviews expect quick, accurate math without a calculator. You have 60 seconds — answer as many as you can. Shortcuts accepted: <b>450k</b>, <b>1.2m</b>, <b>3b</b>.</p></div>' +
+        '<div class="page-head"><h1>Mental Math Arena</h1><p>Consulting interviews expect quick, accurate math without a calculator. Pick a time limit and question types, then answer as many as you can. Shortcuts accepted: <b>450k</b>, <b>1.2m</b>, <b>3b</b>.</p></div>' +
         '<div class="arena card">' +
           (result || '<div class="big-emoji">🧮</div><h2>Ready?</h2>') +
-          '<div class="arena-stats"><div><div class="kpi">' + S.math.best + '</div><div class="meta">Best score</div></div><div><div class="kpi">' + S.math.runs + '</div><div class="meta">Sprints</div></div></div>' +
-          '<div class="btn-row" style="justify-content:center"><button class="btn" id="go">▶ Start 60-second sprint</button></div>' +
-          '<p class="meta" style="margin-top:10px">+2 XP per correct answer · badges at 10 and 20</p>' +
+          '<div class="arena-stats"><div><div class="kpi">' + (d ? best : "—") + '</div><div class="meta">Best (' + esc(fmtDuration(d)) + ')</div></div><div><div class="kpi">' + S.math.runs + '</div><div class="meta">Sprints</div></div></div>' +
+          '<div class="btn-row" style="justify-content:center"><button class="btn" id="go">▶ Start ' + (d ? esc(fmtDuration(d)) + " sprint" : "untimed practice") + "</button></div>" +
+          '<p class="meta" style="margin-top:10px">' + (d ? "+2 XP per correct answer · badges at 10 and 20 correct in a sprint of 1 minute or less" : "Untimed practice: +1 XP per correct answer, no badges. End whenever you like.") + "</p>" +
         "</div>" +
+        '<section class="section card"><h3>⏱️ Time limit</h3><div class="filter-row">' +
+          TIME_PRESETS.map(function (t) {
+            return '<button class="chip' + (d === t ? " active" : "") + '" data-time="' + t + '">' + esc(fmtDuration(t)) + "</button>";
+          }).join("") +
+        '</div><div class="input-row"><label class="meta" for="customTime">Custom (seconds)</label>' +
+          '<input class="input" id="customTime" type="number" min="' + MIN_TIME + '" max="' + MAX_TIME + '" step="5" style="width:120px" placeholder="e.g. 90" value="' + (d && TIME_PRESETS.indexOf(d) < 0 ? d : "") + '">' +
+          '<button class="btn sm ghost" id="setTime">Set</button></div>' +
+          '<h3 style="margin-top:18px">🔢 Question types</h3><div class="filter-row">' +
+          generators.map(function (g) {
+            const on = types.indexOf(g) >= 0;
+            return '<button class="chip' + (on ? " active" : "") + '" data-type="' + g.key + '" aria-pressed="' + on + '">' + esc(g.label) + "</button>";
+          }).join("") +
+        '</div><p class="meta" style="margin:0">Your settings are remembered. Best scores are tracked separately for each time limit.</p></section>' +
         '<section class="section grid grid-2">' +
           '<div class="card"><h3>Zero management</h3><p class="meta" style="margin:0">Split numbers into digits × powers of ten: 3,000 × 400 = (3 × 4) × 10⁵ = 1.2M. Count zeros before you speak.</p></div>' +
           '<div class="card"><h3>Percent tricks</h3><p class="meta" style="margin:0">x% of y = y% of x (8% of 50 = 50% of 8 = 4). 15% = 10% + 5%. Breakeven churn after a price rise = 1 − old/new.</p></div>' +
         "</section>";
+
       document.getElementById("go").addEventListener("click", start);
+      main.querySelectorAll("[data-time]").forEach(function (b) {
+        b.addEventListener("click", function () { S.math.duration = +b.dataset.time; save(); intro(result); });
+      });
+      const setCustom = function () {
+        const v = Math.round(+document.getElementById("customTime").value);
+        if (!v || v < MIN_TIME || v > MAX_TIME) { toast("Enter " + MIN_TIME + "–" + MAX_TIME + " seconds"); return; }
+        S.math.duration = v; save(); intro(result);
+      };
+      document.getElementById("setTime").addEventListener("click", setCustom);
+      document.getElementById("customTime").addEventListener("keydown", function (e) { if (e.key === "Enter") setCustom(); });
+      main.querySelectorAll("[data-type]").forEach(function (b) {
+        b.addEventListener("click", function () {
+          const cur = enabledTypes().map(function (g) { return g.key; });
+          const k = b.dataset.type;
+          const at = cur.indexOf(k);
+          if (at >= 0) {
+            if (cur.length === 1) { toast("Keep at least one question type"); return; }
+            cur.splice(at, 1);
+          } else cur.push(k);
+          S.math.types = cur.length === generators.length ? null : cur;
+          save(); intro(result);
+        });
+      });
     }
 
-    function nextQ() { game.cur = pick(generators)(); }
+    function nextQ() { game.cur = pick(enabledTypes()).make(); }
 
     function start() {
       game.running = true; game.score = 0; game.wrong = 0; game.log = [];
-      game.end = Date.now() + DURATION * 1000;
+      game.duration = S.math.duration;
+      game.start = Date.now();
+      game.end = game.start + game.duration * 1000;
       nextQ();
       main.innerHTML =
         '<div class="arena card" id="arena">' +
-          '<div class="arena-stats"><div><div class="kpi" id="left">' + DURATION + '</div><div class="meta">seconds</div></div><div><div class="kpi" id="score">0</div><div class="meta">correct</div></div></div>' +
-          bar(100) +
+          '<div class="arena-stats"><div><div class="kpi" id="left">' + (game.duration ? clock(game.duration) : "0:00") + '</div><div class="meta">' + (game.duration ? "time left" : "elapsed") + '</div></div><div><div class="kpi" id="score">0</div><div class="meta">correct</div></div></div>' +
+          (game.duration ? bar(100) : "") +
           '<div class="arena-q" id="q"></div>' +
           '<div class="input-row" style="justify-content:center"><input class="input num" id="ans" inputmode="decimal" autocomplete="off" placeholder="Answer"><span class="muted" id="unit"></span></div>' +
-          '<div class="btn-row" style="justify-content:center"><button class="btn" id="submit">Submit ⏎</button><button class="btn ghost" id="skip">Skip</button></div>' +
+          '<div class="btn-row" style="justify-content:center"><button class="btn" id="submit">Submit ⏎</button><button class="btn ghost" id="skip">Skip</button><button class="btn ghost" id="endRun">' + (game.duration ? "End early" : "Finish") + "</button></div>" +
         "</div>";
       const inp = document.getElementById("ans");
       paintQ();
@@ -839,14 +906,14 @@
         game.log.push({ q: game.cur.q, a: game.cur.a, you: "—", ok: false });
         nextQ(); paintQ(); inp.focus();
       });
+      document.getElementById("endRun").addEventListener("click", stop);
       game.iv = setInterval(tick, 200);
     }
 
     function paintQ() {
       document.getElementById("q").textContent = game.cur.q;
       document.getElementById("unit").textContent = game.cur.unit || "";
-      const inp = document.getElementById("ans");
-      inp.value = "";
+      document.getElementById("ans").value = "";
     }
 
     function submit() {
@@ -867,30 +934,42 @@
     }
 
     function tick() {
-      const left = Math.max(0, (game.end - Date.now()) / 1000);
       const el = document.getElementById("left");
-      if (el) el.textContent = Math.ceil(left);
+      if (!game.duration) {
+        if (el) el.textContent = clock((Date.now() - game.start) / 1000);
+        return;
+      }
+      const left = Math.max(0, (game.end - Date.now()) / 1000);
+      if (el) el.textContent = clock(Math.ceil(left));
       const b = main.querySelector(".bar > i");
-      if (b) b.style.width = (left / DURATION) * 100 + "%";
+      if (b) b.style.width = (left / game.duration) * 100 + "%";
       if (left <= 0) stop();
     }
 
     function stop() {
+      if (!game.running) return;
       clearInterval(game.iv);
       game.running = false;
-      const newBest = game.score > S.math.best;
-      S.math.best = Math.max(S.math.best, game.score);
+      const d = game.duration;
+      const timed = d > 0;
+      const newBest = timed && game.score > (S.math.bests[d] || 0);
+      if (timed) {
+        S.math.bests[d] = Math.max(S.math.bests[d] || 0, game.score);
+        if (d <= 60) S.math.best = Math.max(S.math.best, game.score); // badges stay comparable
+      }
       S.math.runs++;
       S.math.total += game.score;
       save();
-      if (game.score) addXP(game.score * 2, "Math sprint"); else { touchStreak(); checkBadges(); }
-      if (newBest && game.score) { toast("🏅 New personal best: " + game.score); confetti(); }
+      if (game.score) addXP(game.score * (timed ? 2 : 1), timed ? "Math sprint" : "Math practice"); else { touchStreak(); checkBadges(); }
+      if (newBest && game.score) { toast("🏅 New personal best (" + fmtDuration(d) + "): " + game.score); confetti(); }
       const acc = game.log.length ? Math.round((game.score / game.log.length) * 100) : 0;
+      const secs = timed ? Math.min(d, (Date.now() - game.start) / 1000) : (Date.now() - game.start) / 1000;
+      const pace = game.score ? (secs / game.score).toFixed(1) + " sec per correct answer" : "";
       const review = game.log.length ? '<table class="tbl" style="margin-top:14px"><thead><tr><th>Question</th><th>Answer</th><th>You</th></tr></thead><tbody>' +
         game.log.map(function (l) {
           return "<tr><td>" + esc(l.q) + "</td><td>" + fmt(l.a) + "</td><td>" + (l.ok ? "✅ " : "❌ ") + esc(l.you) + "</td></tr>";
         }).join("") + "</tbody></table>" : "";
-      intro('<div class="big-emoji">' + (newBest ? "🏅" : "⏱️") + "</div><h2>" + game.score + " correct</h2><p class=\"muted\">Accuracy " + acc + "%" + (newBest ? " · new personal best!" : "") + '</p><div style="overflow-x:auto">' + review + "</div>");
+      intro('<div class="big-emoji">' + (newBest ? "🏅" : "⏱️") + "</div><h2>" + game.score + ' correct</h2><p class="muted">' + esc(fmtDuration(d)) + " · accuracy " + acc + "%" + (pace ? " · " + pace : "") + (newBest ? " · new personal best!" : "") + '</p><div style="overflow-x:auto">' + review + "</div>");
       renderHud();
     }
 
@@ -917,7 +996,9 @@
     function setup(isPractice) {
       practice = isPractice;
       const rnd = isPractice ? Math.random : seeded("daily-" + t);
-      qs = shuffle(pool.slice(), rnd).slice(0, 5);
+      qs = shuffle(pool.slice(), rnd).slice(0, 5).map(function (q) {
+        return Object.assign({ order: order(q.options.length, rnd) }, q);
+      });
       answers = [];
       idx = 0;
     }
@@ -938,10 +1019,11 @@
         '<div class="page-head"><h1>' + (practice ? "Practice round" : "Daily challenge") + "</h1><p>" + (practice ? "Random questions — just for practice." : "+10 XP per correct answer · +20 XP bonus for a perfect 5/5.") + "</p></div>" +
         '<div class="stepper">' + qs.map(function (_, i) { return '<span class="' + (i < idx ? "done" : i === idx ? "now" : "") + '"></span>'; }).join("") + "</div>" +
         '<div class="card"><span class="tag brand">' + esc(q.src) + '</span><div class="q-title" style="margin-top:10px">' + (idx + 1) + ". " + esc(q.q) + '</div><div class="options">' +
-        q.options.map(function (o, oi) {
+        q.order.map(function (oi, pos) {
+          const o = q.options[oi];
           let cls = "";
           if (a != null) { if (oi === q.answer) cls = "correct"; else if (oi === a) cls = "wrong"; }
-          return '<button class="opt ' + cls + '" data-o="' + oi + '"' + (a != null ? " disabled" : "") + '><span class="key">' + letter(oi) + "</span><span>" + esc(o) + "</span></button>";
+          return '<button class="opt ' + cls + '" data-o="' + oi + '"' + (a != null ? " disabled" : "") + '><span class="key">' + letter(pos) + "</span><span>" + esc(o) + "</span></button>";
         }).join("") + "</div>" +
         (a != null ? '<div class="feedback ' + (a === q.answer ? "good" : "bad") + '">' + (a === q.answer ? "✅ " : "❌ ") + esc(q.explain) + '</div><div class="btn-row"><button class="btn" id="next">' + (idx < qs.length - 1 ? "Next →" : "See results") + "</button></div>" : "") +
         "</div>";
