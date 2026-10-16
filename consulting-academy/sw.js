@@ -1,6 +1,6 @@
 /* Caches the whole app so it keeps working offline once loaded over http(s). */
-const CACHE = "consulting-academy-v1";
-const FILES = ["./", "index.html", "css/styles.css", "js/data.js", "js/app.js", "icon.svg", "manifest.webmanifest"];
+const CACHE = "consulting-academy-v2";
+const FILES = ["./", "index.html", "css/styles.css", "js/data.js", "js/mece-data.js", "js/app.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

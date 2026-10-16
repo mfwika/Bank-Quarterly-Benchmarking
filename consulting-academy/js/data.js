@@ -23,6 +23,8 @@ window.CA_DATA = {
     { id: "storyteller", icon: "🎤", name: "Storyteller", desc: "Save 3 STAR stories in your story bank." },
     { id: "math-10", icon: "🧮", name: "Human Calculator", desc: "Score 10+ in one Mental Math sprint." },
     { id: "math-20", icon: "⚡", name: "Excel Who?", desc: "Score 20+ in one Mental Math sprint." },
+    { id: "mece-first", icon: "🧱", name: "Structured Mind", desc: "Complete your first MECE Practice." },
+    { id: "mece-master", icon: "🏛️", name: "MECE Master", desc: "Score 85+ in MECE Practice on 5 different prompts." },
     { id: "quiz-perfect", icon: "✅", name: "Quiz Whiz", desc: "Get 5/5 on a Daily Challenge." },
     { id: "streak-3", icon: "🔥", name: "On Fire", desc: "Practise 3 days in a row." },
     { id: "streak-7", icon: "🌋", name: "Unstoppable", desc: "Practise 7 days in a row." },

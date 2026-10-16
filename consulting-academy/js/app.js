@@ -21,6 +21,7 @@
       practiced: {},      // questionId -> true (XP already given)
       drafts: {},         // questionId -> { s, t, a, r }
       math: { best: 0, runs: 0, total: 0, duration: 60, types: null, bests: {} },
+      mece: { duration: 120, mode: "free", runs: 0, best: {} },  // best: "promptId:mode" -> score
       daily: {},          // date -> { score, answers }
       quizPerfect: false,
       streak: { count: 0, best: 0, last: null },
@@ -156,6 +157,10 @@
       "storyteller": S.stories.length >= 3,
       "math-10": S.math.best >= 10,
       "math-20": S.math.best >= 20,
+      "mece-first": (S.mece.runs || 0) >= 1,
+      "mece-master": D.mece.prompts.filter(function (p) {
+        return Math.max(S.mece.best[p.id + ":free"] || 0, S.mece.best[p.id + ":builder"] || 0) >= 85;
+      }).length >= 5,
       "quiz-perfect": !!S.quizPerfect,
       "streak-3": (S.streak.best || 0) >= 3,
       "streak-7": (S.streak.best || 0) >= 7,
@@ -247,6 +252,7 @@
       behavioral: viewBehavioral,
       practice: viewPractice,
       math: viewMath,
+      mece: viewMece,
       daily: viewDaily,
       profile: viewProfile
     };
@@ -260,6 +266,11 @@
     main.focus({ preventScroll: true });
   }
   window.addEventListener("hashchange", route);
+  // Clicking a link to the page you're already on (e.g. "MECE Practice" from a results screen) re-opens it.
+  document.addEventListener("click", function (e) {
+    const a = e.target.closest && e.target.closest('a[href^="#/"]');
+    if (a && a.getAttribute("href") === (location.hash || "#/")) { e.preventDefault(); route(); }
+  });
 
   /* ================================================================== */
   /* Views                                                               */
@@ -308,6 +319,7 @@
         moduleCard("#/learn", "🗂️", "Frameworks", "MECE, issue trees, profitability, market entry, M&A, pricing and more.", lessonsDone, D.frameworks.length, "lessons") +
         moduleCard("#/cases", "💼", "Case studies", "Interactive cases: clarify, structure, crunch exhibits, recommend.", casesDone, D.cases.length, "cases") +
         moduleCard("#/behavioral", "🎤", "Behavioural", "STAR method, the classic questions, a timer and your story bank.", Math.min(S.stories.length, 8), 8, "stories (aim for 8)") +
+        moduleCard("#/mece", "🧩", "MECE Practice", "Structure a case prompt against the clock. Scored on logic, overlaps, gaps and prioritisation.", D.mece.prompts.filter(function (p) { return S.mece.best[p.id + ":free"] != null || S.mece.best[p.id + ":builder"] != null; }).length, D.mece.prompts.length, "prompts practised") +
         moduleCard("#/math", "🧮", "Mental math", "Timed sprints (you set the clock) on percentages, zeros, growth and breakeven.", Math.min(S.math.best, 20), 20, "best score (target 20)") +
         moduleCard("#/daily", "🎯", "Daily challenge", "5 fresh questions every day. Keep the streak alive.", dailyDone ? 1 : 0, 1, "done today") +
         moduleCard("#/profile", "🏅", "Badges & profile", "Track achievements, back up or restore progress.", badgeCount, D.badges.length, "badges") +
@@ -974,6 +986,521 @@
     }
 
     intro();
+  }
+
+  /* -------------------------- MECE Practice -------------------------- */
+  const MECE_TIMES = [60, 90, 120, 180, 300, 0];
+  const MECE_MAX_BRANCHES = 6;
+
+  function meceState() {
+    const m = S.mece;
+    if (typeof m.duration !== "number") m.duration = 120;
+    if (m.mode !== "free" && m.mode !== "builder") m.mode = "free";
+    if (!m.best || typeof m.best !== "object") m.best = {};
+    return m;
+  }
+
+  /* --- free-text scoring helpers --- */
+  function normText(s) {
+    return " " + String(s || "").toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9&%.'\-\s]/g, " ").replace(/\s+/g, " ").trim() + " ";
+  }
+  function kwLen(text, kws) {
+    let best = 0;
+    for (let i = 0; i < kws.length; i++) {
+      if (kws[i].length > best && text.indexOf(" " + kws[i].toLowerCase()) >= 0) best = kws[i].length;
+    }
+    return best;
+  }
+  function kwHit(text, kws) {
+    for (let i = 0; i < kws.length; i++) {
+      if (text.indexOf(" " + kws[i].toLowerCase()) >= 0) return kws[i];
+    }
+    return null;
+  }
+  const STOP = ["the", "a", "an", "of", "and", "or", "to", "in", "on", "for", "by", "vs", "per", "with", "our", "its", "is", "are", "dan", "di", "ke", "yang", "untuk"];
+  function tokens(s) {
+    return normText(s).trim().split(" ").filter(function (w) { return w.length > 1 && STOP.indexOf(w) < 0; });
+  }
+  function jaccard(a, b) {
+    const A = tokens(a), B = tokens(b);
+    if (!A.length || !B.length) return 0;
+    const inter = A.filter(function (w) { return B.indexOf(w) >= 0; }).length;
+    return inter / (A.length + B.length - inter);
+  }
+
+  function scoreFree(p, rawBranches, hypothesis, overtime) {
+    const M = D.mece;
+    const tops = rawBranches.map(function (b) {
+      return {
+        label: b.label.trim(),
+        subs: b.subs.split(/\n/).map(function (s) { return s.replace(/^[\s\-–•*>]+|^\d+[.)]\s*/g, "").trim(); }).filter(Boolean)
+      };
+    }).filter(function (b) { return b.label || b.subs.length; });
+    const fb = [];
+    if (!tops.length) {
+      return { total: 0, parts: [], feedback: [{ ok: false, t: "Your tree is empty. Add at least two top-level branches with sub-points." }], frame: p.frames[0].name, tops: tops };
+    }
+    const labelsN = tops.map(function (b) { return normText(b.label); });
+    const subsN = tops.map(function (b) { return normText(b.subs.join(" | ")); });
+    const allN = normText(tops.map(function (b) { return b.label + " | " + b.subs.join(" | "); }).join(" | "));
+
+    // Evaluate every valid frame and keep the best fit.
+    let best = null;
+    p.frames.forEach(function (fr) {
+      const req = fr.pillars.filter(function (x) { return !x.opt; });
+      // Assign each top-level label to the single pillar it names most specifically (longest keyword),
+      // so "Uniforms per student" isn't also counted as "Number of students".
+      const owner = labelsN.map(function (ln) {
+        let pick = null;
+        fr.pillars.forEach(function (pl, pi) {
+          const g = kwLen(ln, pl.kw), a = kwLen(ln, pl.alt || []);
+          const score = g ? 1000 + g : a;
+          if (score && (!pick || score > pick.score)) pick = { pi: pi, score: score, general: !!g };
+        });
+        return pick;
+      });
+      const res = fr.pillars.map(function (pl, pi) {
+        const general = [], viaAlt = [];
+        owner.forEach(function (o, i) {
+          if (!o || o.pi !== pi) return;
+          (o.general ? general : viaAlt).push(i);
+        });
+        const inSubs = subsN.some(function (sn) { return kwHit(sn, pl.kw) || kwHit(sn, pl.alt || []); });
+        const level = general.length || viaAlt.length ? 1 : inSubs ? 0.5 : 0;
+        const subsHit = pl.subs.filter(function (s) { return kwHit(allN, s.kw); });
+        return { pl: pl, general: general, viaAlt: viaAlt, level: level, subsHit: subsHit };
+      });
+      const reqRes = res.filter(function (r) { return !r.pl.opt; });
+      const coverage = 40 * reqRes.reduce(function (a, r) { return a + r.level; }, 0) / req.length;
+      const totalSubs = reqRes.reduce(function (a, r) { return a + r.pl.subs.length; }, 0);
+      const hitSubs = reqRes.reduce(function (a, r) { return a + r.subsHit.length; }, 0) +
+        res.filter(function (r) { return r.pl.opt; }).reduce(function (a, r) { return a + r.subsHit.length; }, 0);
+      const depth = 20 * Math.min(1, hitSubs / Math.max(1, Math.ceil(totalSubs * 0.6)));
+      if (!best || coverage + depth > best.coverage + best.depth) best = { fr: fr, res: res, owner: owner, coverage: coverage, depth: depth, hitSubs: hitSubs, totalSubs: totalSubs };
+    });
+
+    // Coverage feedback
+    fb.push({ ok: true, info: true, t: "Recognised structure: " + best.fr.name + (p.frames.length > 1 ? " (other valid structures were considered too)" : "") + "." });
+    best.res.forEach(function (r) {
+      if (r.level === 1) fb.push({ ok: true, t: "Covers " + r.pl.label + " as a top-level branch." });
+      else if (r.level === 0.5) fb.push({ ok: false, half: true, t: r.pl.label + " only appears inside a sub-point. It deserves its own top-level branch." });
+      else if (!r.pl.opt) fb.push({ ok: false, t: "Gap: nothing covers " + r.pl.label + ". Without it the tree isn't collectively exhaustive." });
+    });
+    const missedSubs = [];
+    best.res.forEach(function (r) {
+      if (r.pl.opt) return;
+      r.pl.subs.forEach(function (s) { if (r.subsHit.indexOf(s) < 0) missedSubs.push(s.label); });
+    });
+    fb.push({ ok: best.depth >= 16, half: best.depth >= 8 && best.depth < 16, t: "Depth: " + best.hitSubs + " of " + best.totalSubs + " key drivers named." + (missedSubs.length ? " Worth adding: " + missedSubs.slice(0, 4).join("; ") + "." : "") });
+
+    // MECE structure
+    let structure = 0;
+    const n = tops.length;
+    const countPts = n >= 2 && n <= 5 ? 4 : n > 5 ? 2 : 0;
+    structure += countPts;
+    if (n < 2) fb.push({ ok: false, t: "Only one top-level branch. Split the problem into 2–5 buckets." });
+    else if (n > 5) fb.push({ ok: false, half: true, t: n + " top-level branches is a lot. Group them into 2–5 so the interviewer can follow." });
+    const deep = tops.filter(function (b) { return b.subs.length >= 2; }).length;
+    structure += 4 * deep / n;
+    if (deep < n) fb.push({ ok: false, half: true, t: (n - deep) + " branch(es) have fewer than 2 sub-points. Go one level deeper." });
+
+    const overlaps = [];
+    const seen = {};
+    function addOverlap(i, j, why) {
+      const k = Math.min(i, j) + "-" + Math.max(i, j);
+      if (seen[k]) return;
+      seen[k] = 1;
+      overlaps.push("'" + (tops[i].label || "branch " + (i + 1)) + "' and '" + (tops[j].label || "branch " + (j + 1)) + "' " + why);
+    }
+    best.res.forEach(function (r) {
+      for (let a = 1; a < r.general.length; a++) addOverlap(r.general[0], r.general[a], "both cover " + r.pl.label + ".");
+    });
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (tops[i].label && tops[j].label && jaccard(tops[i].label, tops[j].label) >= 0.5) addOverlap(i, j, "are near-duplicates.");
+        M.overlapPairs.forEach(function (pr) {
+          if ((kwHit(labelsN[i], [pr[0]]) && kwHit(labelsN[j], [pr[1]])) || (kwHit(labelsN[i], [pr[1]]) && kwHit(labelsN[j], [pr[0]]))) addOverlap(i, j, "overlap (" + pr[0] + " / " + pr[1] + ").");
+        });
+        tops[i].subs.forEach(function (si) {
+          tops[j].subs.forEach(function (sj) {
+            if (jaccard(si, sj) >= 0.6) addOverlap(i, j, "both contain '" + si + "'.");
+          });
+        });
+      }
+    }
+    structure += Math.max(0, 10 - 6 * overlaps.length);
+    if (overlaps.length) overlaps.forEach(function (o) { fb.push({ ok: false, t: "Overlap: " + o + " Not mutually exclusive." }); });
+    else if (n >= 2) fb.push({ ok: true, t: "No overlaps detected between branches." });
+
+    const levelIssues = [];
+    best.res.forEach(function (r) {
+      if (!r.general.length) return;
+      r.viaAlt.forEach(function (i) {
+        if (r.general.indexOf(i) < 0) levelIssues.push("'" + tops[i].label + "' belongs under '" + tops[r.general[0]].label + "'. It's one level lower.");
+      });
+    });
+    tops.forEach(function (b, i) {
+      const t = tokens(b.label);
+      const named = best.owner[i] && best.owner[i].general;
+      if (!named && t.length && t.length <= 2 && t.every(function (w) { return M.vague.some(function (v) { return w.indexOf(v) === 0; }); })) levelIssues.push("'" + b.label + "' is too vague. Name what the bucket actually contains.");
+      if (kwHit(normText(b.label), M.solutionWords)) levelIssues.push("'" + b.label + "' mixes solutions into a driver tree. Structure the drivers first; ideas come later.");
+    });
+    structure += Math.max(0, 7 - 4 * levelIssues.length);
+    levelIssues.forEach(function (t) { fb.push({ ok: false, t: "Level: " + t }); });
+    // A clean split of the wrong problem is only partly useful: scale structure by prompt fit.
+    const fit = best.coverage / 40;
+    if (fit < 1) {
+      structure *= 0.5 + 0.5 * fit;
+      if (fit < 0.75) fb.push({ ok: false, half: true, t: "MECE structure points are scaled down because the tree doesn't fit this prompt yet." });
+    }
+
+    // Prioritisation
+    let prio = 0;
+    const hyp = String(hypothesis || "").trim();
+    if (hyp.length >= 15) prio += 5;
+    if (hyp && kwHit(normText(hyp), p.priority.kw)) {
+      prio += 10;
+      fb.push({ ok: true, t: "Good prioritisation: you started where the prompt's clue points." });
+    } else {
+      fb.push({ ok: false, t: (hyp ? "Your starting point misses the clue. " : "You didn't say where you'd start. ") + p.priority.why });
+    }
+
+    // Off-prompt content
+    let pen = 0;
+    p.offs.forEach(function (o) {
+      if (kwHit(allN, o.kw)) { pen += 5; fb.push({ ok: false, t: "Off-prompt: " + o.why }); }
+    });
+    pen = Math.min(15, pen);
+    const otPen = overtime > 30 ? 10 : overtime > 0 ? 5 : 0;
+    if (otPen) fb.push({ ok: false, t: "Over time by " + Math.round(overtime) + " sec (−" + otPen + ")." });
+
+    const parts = [
+      { name: "Fits the prompt", v: best.coverage, max: 40 },
+      { name: "Depth", v: best.depth, max: 20 },
+      { name: "MECE structure", v: structure, max: 25 },
+      { name: "Prioritisation", v: prio, max: 15 }
+    ];
+    const raw = parts.reduce(function (a, x) { return a + x.v; }, 0) - pen - otPen;
+    return { total: Math.max(0, Math.min(100, Math.round(raw))), parts: parts, penalty: pen + otPen, feedback: fb, frame: best.fr.name, tops: tops };
+  }
+
+  function scoreBuilder(p, chosen, placed, prioPick, overtime) {
+    const B = p.builder;
+    const correct = B.buckets.filter(function (b) { return b.ok; }).map(function (b) { return b.t; });
+    const fb = [];
+    const hits = chosen.filter(function (t) { return correct.indexOf(t) >= 0; });
+    const decoys = chosen.filter(function (t) { return correct.indexOf(t) < 0; });
+    const bucketPts = Math.max(0, 30 * hits.length / correct.length - 10 * decoys.length);
+    correct.forEach(function (t) {
+      if (chosen.indexOf(t) < 0) fb.push({ ok: false, t: "Gap: you didn't use '" + t + "' as a top-level bucket." });
+    });
+    decoys.forEach(function (t) {
+      const b = B.buckets.find(function (x) { return x.t === t; });
+      fb.push({ ok: false, t: "'" + t + "' isn't a good top-level bucket. " + b.why });
+    });
+    if (!decoys.length && hits.length === correct.length) fb.push({ ok: true, t: "Your top-level buckets are MECE and fit the prompt." });
+
+    let right = 0;
+    B.cards.forEach(function (c) {
+      const at = placed[c.t] || "__out";
+      const ok = c.b ? at === c.b : at === "__out";
+      if (ok) right++;
+      else if (c.b) fb.push({ ok: false, t: "'" + c.t + "' belongs under " + c.b + (at === "__out" ? " (you left it out)." : ", not " + at + ".") });
+      else fb.push({ ok: false, t: "'" + c.t + "' should be left out: " + c.why });
+    });
+    const cardPts = 50 * right / B.cards.length;
+    if (right === B.cards.length) fb.push({ ok: true, t: "Every card is in the right place." });
+
+    const empty = chosen.filter(function (t) { return !B.cards.some(function (c) { return placed[c.t] === t; }); });
+    const structPts = (empty.length ? 0 : 5) + (decoys.length ? 0 : 5);
+    if (empty.length) fb.push({ ok: false, t: "Empty bucket(s): " + empty.join(", ") + ". A bucket with nothing in it shouldn't be in the tree." });
+
+    const prioOk = B.priority.indexOf(prioPick) >= 0;
+    const prioPts = prioOk ? 10 : 0;
+    fb.push(prioOk ? { ok: true, t: "Good prioritisation: you'd start where the prompt's clue points." } : { ok: false, t: (prioPick ? "Starting with '" + prioPick + "' misses the clue. " : "You didn't pick a starting branch. ") + p.priority.why });
+
+    const otPen = overtime > 30 ? 10 : overtime > 0 ? 5 : 0;
+    if (otPen) fb.push({ ok: false, t: "Over time by " + Math.round(overtime) + " sec (−" + otPen + ")." });
+    const parts = [
+      { name: "Top-level buckets", v: bucketPts, max: 30 },
+      { name: "Cards placed correctly", v: cardPts, max: 50 },
+      { name: "Clean structure", v: structPts, max: 10 },
+      { name: "Prioritisation", v: prioPts, max: 10 }
+    ];
+    const raw = parts.reduce(function (a, x) { return a + x.v; }, 0) - otPen;
+    return { total: Math.max(0, Math.min(100, Math.round(raw))), parts: parts, penalty: otPen, feedback: fb };
+  }
+
+  function modelTree(p) {
+    return { t: p.question, c: p.builder.buckets.filter(function (b) { return b.ok; }).map(function (b) {
+      return { t: b.t, c: p.builder.cards.filter(function (c) { return c.b === b.t; }).map(function (c) { return { t: c.t }; }) };
+    }) };
+  }
+
+  function viewMece(arg) {
+    const m = meceState();
+    const P = D.mece.prompts;
+    const game = { iv: null };
+    onLeave(function () { clearInterval(game.iv); });
+
+    function menu() {
+      clearInterval(game.iv);
+      const d = m.duration;
+      main.innerHTML =
+        '<div class="page-head"><h1>MECE Practice</h1><p>Get a case prompt, then structure it against the clock, just like the "give me a minute to structure" moment in an interview. There\'s no single correct tree; you\'re scored on the <b>logic</b>: does it fit the prompt, is it mutually exclusive and collectively exhaustive, does it go deep enough, and do you start where the clues point?</p></div>' +
+        '<section class="card"><h3>Mode</h3><div class="filter-row">' +
+          '<button class="chip' + (m.mode === "free" ? " active" : "") + '" data-mode="free">✍️ Free-type</button>' +
+          '<button class="chip' + (m.mode === "builder" ? " active" : "") + '" data-mode="builder">🧱 Builder (cards)</button>' +
+        '</div><p class="meta" style="margin:0">' + (m.mode === "free"
+          ? "Type your own branches and sub-points, as you would on paper. Scored on concepts and MECE rules against several valid structures."
+          : "Choose top-level buckets from a bank (some are traps), then sort the cards into them or leave them out. Scored exactly.") + "</p>" +
+        '<h3 style="margin-top:16px">⏱️ Time to structure</h3><div class="filter-row">' +
+          MECE_TIMES.map(function (t) { return '<button class="chip' + (d === t ? " active" : "") + '" data-time="' + t + '">' + esc(fmtDuration(t)) + "</button>"; }).join("") +
+        '</div><div class="input-row"><label class="meta" for="meceCustom">Custom (seconds)</label><input class="input" id="meceCustom" type="number" min="' + MIN_TIME + '" max="' + MAX_TIME + '" step="5" style="width:120px" placeholder="e.g. 150" value="' + (d && MECE_TIMES.indexOf(d) < 0 ? d : "") + '"><button class="btn sm ghost" id="meceSet">Set</button></div>' +
+        '<p class="meta" style="margin:8px 0 0">The clock keeps running past zero: going over time costs 5 points (10 if more than 30 sec over).</p>' +
+        '<div class="btn-row"><button class="btn" id="meceRandom">🎲 Random prompt</button></div></section>' +
+        '<section class="section"><h2>Prompts</h2><div class="grid grid-3">' + P.map(function (p) {
+          const bf = m.best[p.id + ":free"], bb = m.best[p.id + ":builder"];
+          return '<button class="card mece-pick" data-pid="' + p.id + '" style="text-align:left;cursor:pointer"><div class="card-icon">' + p.icon + "</div><h3>" + esc(p.title) + "</h3>" +
+            '<div class="tags"><span class="tag brand">' + esc(p.type) + "</span>" +
+            (bf != null ? '<span class="tag ' + (bf >= 85 ? "good" : "") + '">✍️ ' + bf + "</span>" : "") +
+            (bb != null ? '<span class="tag ' + (bb >= 85 ? "good" : "") + '">🧱 ' + bb + "</span>" : "") +
+            (bf == null && bb == null ? '<span class="tag gold">+XP</span>' : "") + '</div><div style="margin-top:10px">' + stars(p.difficulty) + "</div></button>";
+        }).join("") + "</div></section>" +
+        '<section class="section grid grid-2">' +
+          '<div class="card"><h3>How free-type is scored</h3><ul class="list-check">' +
+            "<li><b>Fits the prompt (40):</b> your top-level branches cover the drivers this case needs.</li>" +
+            "<li><b>Depth (20):</b> the sub-points name the key drivers.</li>" +
+            "<li><b>MECE structure (25):</b> 2–5 branches, no overlaps, no mixed levels, no vague buckets.</li>" +
+            "<li><b>Prioritisation (15):</b> where you'd start, and whether it follows the clue.</li>" +
+          '</ul><p class="meta" style="margin:0">Scoring runs offline using keyword rules, so it can\'t understand wording the way a person would. If valid logic scores low, compare with the model tree.</p></div>' +
+          '<div class="card"><h3>Tips</h3><ul class="list-check">' +
+            "<li>Split with an equation when you can (Profit = Revenue − Costs; Book = inflows − outflows).</li>" +
+            "<li>Keep each level at the same altitude: 'Fuel' doesn't sit next to 'Costs'.</li>" +
+            "<li>Read the prompt for clues that rule branches in or out.</li>" +
+            "<li>Name buckets by what they contain, not 'Factors' or 'Analysis'.</li>" +
+          "</ul></div></section>";
+
+      main.querySelectorAll("[data-mode]").forEach(function (b) { b.addEventListener("click", function () { m.mode = b.dataset.mode; save(); menu(); }); });
+      main.querySelectorAll("[data-time]").forEach(function (b) { b.addEventListener("click", function () { m.duration = +b.dataset.time; save(); menu(); }); });
+      const setCustom = function () {
+        const v = Math.round(+document.getElementById("meceCustom").value);
+        if (!v || v < MIN_TIME || v > MAX_TIME) { toast("Enter " + MIN_TIME + "–" + MAX_TIME + " seconds"); return; }
+        m.duration = v; save(); menu();
+      };
+      document.getElementById("meceSet").addEventListener("click", setCustom);
+      document.getElementById("meceCustom").addEventListener("keydown", function (e) { if (e.key === "Enter") setCustom(); });
+      document.getElementById("meceRandom").addEventListener("click", function () {
+        const pool = P.filter(function (p) { return p.id !== arg; });
+        play(pick(pool));
+      });
+      main.querySelectorAll(".mece-pick").forEach(function (b) {
+        b.addEventListener("click", function () { play(P.find(function (p) { return p.id === b.dataset.pid; })); });
+      });
+    }
+
+    function startClock(run) {
+      clearInterval(game.iv);
+      run.start = Date.now();
+      const paint = function () {
+        const el = document.getElementById("meceClock");
+        if (!el) return;
+        const t = (Date.now() - run.start) / 1000;
+        if (!run.duration) { el.textContent = clock(t); return; }
+        const left = run.duration - t;
+        el.textContent = left >= 0 ? clock(Math.ceil(left)) : "+" + clock(-left);
+        el.className = "timer" + (left < 0 ? " over" : left < 15 ? " warn" : "");
+        const b = document.getElementById("meceBar");
+        if (b) b.style.width = Math.max(0, left / run.duration) * 100 + "%";
+      };
+      paint();
+      game.iv = setInterval(paint, 250);
+    }
+    function overtime(run) { return run.duration ? Math.max(0, (Date.now() - run.start) / 1000 - run.duration) : 0; }
+
+    function header(p, run) {
+      return '<a class="crumb" href="#/mece" id="meceBack">← All prompts</a>' +
+        '<div class="mece-top card"><div><span class="tag brand">' + esc(p.type) + '</span> <span class="tag">' + (run.mode === "free" ? "✍️ Free-type" : "🧱 Builder") + "</span>" +
+        '<h2 style="margin:8px 0 0">' + p.icon + " " + esc(p.title) + '</h2></div><div class="center"><div class="timer" id="meceClock">0:00</div><div class="meta">' + (run.duration ? "to structure" : "untimed") + "</div></div></div>" +
+        (run.duration ? '<div class="bar" style="margin-top:10px"><i id="meceBar" style="width:100%"></i></div>' : "") +
+        '<div class="prompt" style="margin-top:14px"><b>Prompt.</b> ' + esc(p.prompt) + "</div>";
+    }
+
+    function play(p) {
+      const run = { p: p, mode: m.mode, duration: m.duration, start: Date.now() };
+      if (run.mode === "free") playFree(run); else playBuilder(run);
+      startClock(run);
+    }
+
+    /* ---- free-type ---- */
+    function playFree(run) {
+      const p = run.p;
+      run.branches = [{ label: "", subs: "" }, { label: "", subs: "" }, { label: "", subs: "" }];
+      run.hyp = "";
+      function render() {
+        main.innerHTML = header(p, run) +
+          '<div class="card" style="margin-top:16px"><h3>Your framework</h3><p class="meta">Top-level branch on the left, sub-points on the right (one per line). Aim for 2–5 branches.</p>' +
+          '<div class="mece-root">🎯 ' + esc(p.question) + "</div>" +
+          run.branches.map(function (b, i) {
+            return '<div class="branch-row"><div class="branch-num">' + (i + 1) + '</div><input class="input branch-label" data-i="' + i + '" placeholder="Branch ' + (i + 1) + ' (e.g. ' + (i === 0 ? "Revenue" : i === 1 ? "Costs" : "…") + ')" value="' + esc(b.label) + '">' +
+              '<textarea class="input branch-subs" data-i="' + i + '" rows="3" placeholder="Sub-points, one per line">' + esc(b.subs) + "</textarea>" +
+              (run.branches.length > 2 ? '<button class="icon-btn" data-del="' + i + '" title="Remove branch" aria-label="Remove branch ' + (i + 1) + '">✕</button>' : "<span></span>") + "</div>";
+          }).join("") +
+          (run.branches.length < MECE_MAX_BRANCHES ? '<button class="btn ghost sm" id="addBranch">+ Add branch</button>' : "") +
+          '<label style="display:block;margin-top:16px"><b>Where would you start, and why?</b> <span class="meta">One or two sentences: your hypothesis and the clue behind it.</span>' +
+          '<textarea class="input" id="hyp" rows="2" placeholder="e.g. I\'d start with … because the prompt says …">' + esc(run.hyp) + "</textarea></label>" +
+          '<div class="btn-row"><button class="btn accent" id="submitFree">Submit framework</button></div></div>';
+        main.querySelectorAll(".branch-label").forEach(function (el) { el.addEventListener("input", function () { run.branches[+el.dataset.i].label = el.value; }); });
+        main.querySelectorAll(".branch-subs").forEach(function (el) { el.addEventListener("input", function () { run.branches[+el.dataset.i].subs = el.value; }); });
+        main.querySelectorAll("[data-del]").forEach(function (el) { el.addEventListener("click", function () { run.branches.splice(+el.dataset.del, 1); render(); }); });
+        const add = document.getElementById("addBranch");
+        if (add) add.addEventListener("click", function () { run.branches.push({ label: "", subs: "" }); render(); const ls = main.querySelectorAll(".branch-label"); ls[ls.length - 1].focus(); });
+        document.getElementById("hyp").addEventListener("input", function (e) { run.hyp = e.target.value; });
+        document.getElementById("submitFree").addEventListener("click", function () {
+          const filled = run.branches.filter(function (b) { return b.label.trim(); }).length;
+          if (filled < 2) { toast("Add at least two top-level branches first"); return; }
+          const r = scoreFree(p, run.branches, run.hyp, overtime(run));
+          finish(run, r, { t: p.question, c: r.tops.map(function (b) { return { t: b.label || "(unnamed)", c: b.subs.map(function (s) { return { t: s }; }) }; }) });
+        });
+        document.getElementById("meceBack").addEventListener("click", function (e) { e.preventDefault(); menu(); });
+      }
+      render();
+      const first = main.querySelector(".branch-label");
+      if (first) first.focus();
+    }
+
+    /* ---- builder ---- */
+    function playBuilder(run) {
+      const p = run.p;
+      const B = p.builder;
+      run.bank = shuffle(B.buckets.map(function (b) { return b.t; }));
+      run.cardOrder = shuffle(B.cards.map(function (c) { return c.t; }));
+      run.chosen = [];
+      run.placed = {};
+      run.sel = null;
+      run.prio = null;
+      run.stage = "pick";
+
+      function render() {
+        let body;
+        if (run.stage === "pick") {
+          body = '<div class="card" style="margin-top:16px"><h3>Step 1 · Choose your top-level buckets</h3><p class="meta">Pick 2–5. Some options are traps: overlapping, at the wrong level, or off-prompt.</p><div class="filter-row">' +
+            run.bank.map(function (t) {
+              const on = run.chosen.indexOf(t) >= 0;
+              return '<button class="chip' + (on ? " active" : "") + '" data-bucket="' + esc(t) + '" aria-pressed="' + on + '">' + esc(t) + "</button>";
+            }).join("") + '</div><div class="btn-row"><button class="btn" id="toPlace"' + (run.chosen.length >= 2 && run.chosen.length <= 5 ? "" : " disabled") + ">Next: sort the cards →</button></div></div>";
+        } else {
+          const cols = run.chosen.concat(["__out"]);
+          const unplaced = run.cardOrder.filter(function (t) { return !run.placed[t]; });
+          const cardBtn = function (t) {
+            return '<button class="mece-card' + (run.sel === t ? " sel" : "") + '" draggable="true" data-card="' + esc(t) + '">' + esc(t) + "</button>";
+          };
+          body = '<div class="card" style="margin-top:16px"><h3>Step 2 · Sort the cards</h3><p class="meta">Tap a card, then tap a bucket (or drag it). Cards that don\'t belong go to <b>Leave out</b>. Tap a placed card to move it again.</p>' +
+            '<div class="mece-bank" data-col="__bank">' + (unplaced.length ? unplaced.map(cardBtn).join("") : '<span class="meta">All cards placed ✔</span>') + "</div>" +
+            '<div class="mece-board">' + cols.map(function (c) {
+              const inCol = run.cardOrder.filter(function (t) { return run.placed[t] === c; });
+              return '<div class="mece-col' + (c === "__out" ? " out" : "") + '" data-col="' + esc(c) + '"><div class="mece-col-head">' + (c === "__out" ? "🗑️ Leave out" : esc(c)) + "</div>" + inCol.map(cardBtn).join("") + '<div class="mece-drop">' + (run.sel ? "Tap to place here" : "") + "</div></div>";
+            }).join("") + "</div>" +
+            '<h3 style="margin-top:16px">Step 3 · Where would you start?</h3><div class="filter-row">' +
+            run.chosen.map(function (t) { return '<button class="chip' + (run.prio === t ? " active" : "") + '" data-prio="' + esc(t) + '">' + esc(t) + "</button>"; }).join("") + "</div>" +
+            '<div class="btn-row"><button class="btn ghost" id="backPick">← Change buckets</button><button class="btn accent" id="submitBuilder">Submit framework</button></div></div>';
+        }
+        main.innerHTML = header(p, run) + body;
+        document.getElementById("meceBack").addEventListener("click", function (e) { e.preventDefault(); menu(); });
+
+        if (run.stage === "pick") {
+          main.querySelectorAll("[data-bucket]").forEach(function (b) {
+            b.addEventListener("click", function () {
+              const t = b.dataset.bucket, at = run.chosen.indexOf(t);
+              if (at >= 0) run.chosen.splice(at, 1);
+              else if (run.chosen.length >= 5) { toast("Five buckets is the maximum"); return; }
+              else run.chosen.push(t);
+              render();
+            });
+          });
+          document.getElementById("toPlace").addEventListener("click", function () {
+            Object.keys(run.placed).forEach(function (k) { if (run.placed[k] !== "__out" && run.chosen.indexOf(run.placed[k]) < 0) delete run.placed[k]; });
+            if (run.chosen.indexOf(run.prio) < 0) run.prio = null;
+            run.stage = "place"; render();
+          });
+          return;
+        }
+
+        const place = function (card, col) {
+          if (col === "__bank") delete run.placed[card]; else run.placed[card] = col;
+          run.sel = null; render();
+        };
+        main.querySelectorAll("[data-card]").forEach(function (el) {
+          el.addEventListener("click", function (e) {
+            e.stopPropagation();
+            run.sel = run.sel === el.dataset.card ? null : el.dataset.card;
+            render();
+          });
+          el.addEventListener("dragstart", function (e) { e.dataTransfer.setData("text/plain", el.dataset.card); });
+        });
+        main.querySelectorAll("[data-col]").forEach(function (col) {
+          col.addEventListener("click", function () { if (run.sel) place(run.sel, col.dataset.col); });
+          col.addEventListener("dragover", function (e) { e.preventDefault(); col.classList.add("over"); });
+          col.addEventListener("dragleave", function () { col.classList.remove("over"); });
+          col.addEventListener("drop", function (e) { e.preventDefault(); const t = e.dataTransfer.getData("text/plain"); if (t) place(t, col.dataset.col); });
+        });
+        main.querySelectorAll("[data-prio]").forEach(function (b) { b.addEventListener("click", function () { run.prio = b.dataset.prio; render(); }); });
+        document.getElementById("backPick").addEventListener("click", function () { run.stage = "pick"; run.sel = null; render(); });
+        document.getElementById("submitBuilder").addEventListener("click", function () {
+          const left = run.cardOrder.filter(function (t) { return !run.placed[t]; }).length;
+          if (left && !confirm(left + " card(s) aren't placed yet. They'll count as 'Leave out'. Submit anyway?")) return;
+          const r = scoreBuilder(p, run.chosen, run.placed, run.prio, overtime(run));
+          finish(run, r, { t: p.question, c: run.chosen.map(function (b) {
+            return { t: b, c: run.cardOrder.filter(function (t) { return run.placed[t] === b; }).map(function (t) { return { t: t }; }) };
+          }) });
+        });
+      }
+      render();
+    }
+
+    /* ---- results ---- */
+    function finish(run, r, yourTree) {
+      clearInterval(game.iv);
+      const p = run.p;
+      const key = p.id + ":" + run.mode;
+      const prev = m.best[key];
+      const first = prev == null;
+      m.best[key] = Math.max(prev || 0, r.total);
+      m.runs = (m.runs || 0) + 1;
+      save();
+      const xp = first ? Math.round(r.total / 5) : Math.round(r.total / 20);
+      if (xp) addXP(xp, "MECE practice"); else { touchStreak(); checkBadges(); }
+      if (r.total >= 85) confetti();
+      const grade = r.total >= 85 ? ["🏆", "Partner-ready structure"] : r.total >= 70 ? ["💪", "Strong structure"] : r.total >= 50 ? ["📈", "Getting there"] : ["🧭", "Keep practising"];
+      const secs = Math.round((Date.now() - run.start) / 1000);
+      const others = p.frames.length > 1 ? '<p class="meta" style="margin:8px 0 0">Other valid structures for this prompt: ' + p.frames.slice(1).map(function (f) { return esc(f.name); }).join("; ") + ".</p>" : "";
+      main.innerHTML =
+        '<a class="crumb" href="#/mece" id="meceBack">← All prompts</a>' +
+        '<div class="card center"><div class="big-emoji">' + grade[0] + "</div><h2>" + grade[1] + '</h2><div class="kpi">' + r.total + '/100</div><p class="muted">' + esc(p.title) + " · " + (run.mode === "free" ? "Free-type" : "Builder") + " · " + clock(secs) + (run.duration ? " of " + clock(run.duration) : "") +
+          (prev != null && r.total > prev ? " · new best!" : "") + " · +" + xp + ' XP</p>' +
+          '<div class="mece-parts">' + r.parts.map(function (x) {
+            return '<div><div class="mece-part-head"><span>' + esc(x.name) + "</span><b>" + Math.round(x.v) + "/" + x.max + "</b></div>" + bar((x.v / x.max) * 100, "small") + "</div>";
+          }).join("") + (r.penalty ? '<div class="meta">Penalties: −' + r.penalty + "</div>" : "") + "</div></div>" +
+        '<div class="card" style="margin-top:16px"><h3>Feedback</h3><ul class="mece-fb">' + r.feedback.map(function (f) {
+          return '<li class="' + (f.info ? "info" : f.ok ? "ok" : f.half ? "half" : "no") + '">' + esc(f.t) + "</li>";
+        }).join("") + "</ul></div>" +
+        '<div class="grid grid-2" style="margin-top:16px"><div class="card"><h3>Your tree</h3><ul class="tree">' + treeHTML(yourTree) + "</ul></div>" +
+        '<div class="card"><h3>Model tree</h3><ul class="tree">' + treeHTML(modelTree(p)) + "</ul>" + others + "</div></div>" +
+        '<div class="card" style="margin-top:16px"><h3>💡 Takeaway</h3><p style="margin:0">' + esc(p.takeaway) + '</p><p class="meta" style="margin:8px 0 0"><b>Where to start:</b> ' + esc(p.priority.why) + "</p></div>" +
+        '<div class="btn-row"><button class="btn ghost" id="again">↻ Try again</button><button class="btn ghost" id="switchMode">Try in ' + (run.mode === "free" ? "🧱 Builder" : "✍️ Free-type") + ' mode</button><button class="btn" id="nextPrompt">Next prompt →</button></div>';
+      document.getElementById("meceBack").addEventListener("click", function (e) { e.preventDefault(); menu(); });
+      document.getElementById("again").addEventListener("click", function () { play(p); });
+      document.getElementById("switchMode").addEventListener("click", function () { m.mode = run.mode === "free" ? "builder" : "free"; save(); play(p); });
+      document.getElementById("nextPrompt").addEventListener("click", function () {
+        const i = P.indexOf(p);
+        play(P[(i + 1) % P.length]);
+      });
+      window.scrollTo(0, 0);
+      renderHud();
+    }
+
+    const direct = arg && P.find(function (p) { return p.id === arg; });
+    if (direct) play(direct); else menu();
   }
 
   /* ------------------------- Daily challenge ------------------------- */
