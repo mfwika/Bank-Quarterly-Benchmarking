@@ -150,3 +150,12 @@ recruiting roadmap, technical modules (accounting, EV, valuation, DCF, M&A, LBO,
 spaced-repetition flashcards, quizzes with explanations, pop-up quizzes, mental-math sprints and a prep
 checklist. Download the file and open it in any browser; no internet or install needed. Progress is saved in
 the browser's local storage.
+
+The **Models** tab adds a three-statement simulator, DCF / LBO / VC & PE calculators, a study-resources list, and
+four downloadable Excel practice templates with live formulas (also in `ib-prep/templates/`): three-statement
+model, DCF, LBO, and a VC & PE toolkit (VC method, cap table, exit waterfall, fund waterfall). To regenerate them:
+
+```bash
+python ib-prep/build_templates.py           # writes ib-prep/templates/*.xlsx
+python ib-prep/build_templates.py --embed   # embeds them into ib-prep/index.html
+```
