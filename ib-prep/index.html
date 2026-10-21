@@ -1,0 +1,1379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IB Prep Studio</title>
+<meta name="description" content="Offline study guide for breaking into investment banking: roadmap, technicals, flashcards, quizzes and mental-math drills.">
+<style>
+:root{
+  --bg:#f7f5f2; --surface:#ffffff; --surface-2:#f1ede8; --text:#1d1b19; --muted:#6b6560;
+  --border:#e2dcd5; --accent:#a3122a; --accent-2:#c7354b; --accent-soft:#f8e5e8;
+  --good:#1f7a4d; --good-soft:#e2f3ea; --bad:#b42318; --bad-soft:#fde8e6; --warn:#9a6700; --warn-soft:#fff4d6;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.06);
+  --radius:14px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141213; --surface:#1d1b1c; --surface-2:#262324; --text:#f1ece8; --muted:#a8a09a;
+    --border:#38332f; --accent:#e0566c; --accent-2:#f07a8c; --accent-soft:#3a1e24;
+    --good:#4cc38a; --good-soft:#173326; --bad:#f2786b; --bad-soft:#3a1d1a; --warn:#e8b64c; --warn-soft:#3a2f14;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141213; --surface:#1d1b1c; --surface-2:#262324; --text:#f1ece8; --muted:#a8a09a;
+  --border:#38332f; --accent:#e0566c; --accent-2:#f07a8c; --accent-soft:#3a1e24;
+  --good:#4cc38a; --good-soft:#173326; --bad:#f2786b; --bad-soft:#3a1d1a; --warn:#e8b64c; --warn-soft:#3a2f14;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15.5px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+a{color:var(--accent)}
+code,.mono{font-family:var(--mono);font-size:.92em}
+h1,h2,h3,h4{line-height:1.25;margin:0 0 .5em}
+h2{font-size:1.45rem}
+h3{font-size:1.12rem;margin-top:1.3em}
+p{margin:.4em 0 .9em}
+ul,ol{padding-left:1.25em;margin:.3em 0 1em}
+li{margin:.25em 0}
+button{font:inherit;color:inherit}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+
+/* header */
+header.top{position:sticky;top:0;z-index:20;background:var(--bg);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;margin-right:auto;min-width:0}
+.logo{width:30px;height:30px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:15px;flex:none}
+.brand span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:7px 10px;cursor:pointer;white-space:nowrap}
+.iconbtn:hover{border-color:var(--accent)}
+.popbtn{background:var(--accent);color:#fff;border-color:var(--accent)}
+.popbtn:hover{background:var(--accent-2)}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{border:0;background:transparent;padding:7px 12px;border-radius:999px;cursor:pointer;white-space:nowrap;color:var(--muted);font-weight:550}
+nav.tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+nav.tabs button:hover{color:var(--text)}
+
+main{padding:22px 0 80px}
+section.view{display:none}
+section.view.active{display:block}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.muted{color:var(--muted)}
+.small{font-size:.88rem}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--surface-2);color:var(--muted);font-size:.8rem;font-weight:600}
+.pill.acc{background:var(--accent-soft);color:var(--accent)}
+.hero{padding:22px;border-radius:var(--radius);background:linear-gradient(135deg,var(--accent) 0%,#6d0c1c 100%);color:#fff;margin-bottom:18px}
+.hero h1{font-size:1.7rem}
+.hero p{opacity:.92;max-width:62ch}
+.hero .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.hero button{background:#fff;color:#6d0c1c;border:0;border-radius:10px;padding:9px 14px;font-weight:650;cursor:pointer}
+.hero button.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5)}
+.stat .num{font-size:1.7rem;font-weight:750;letter-spacing:-.02em}
+.stat .lbl{color:var(--muted);font-size:.85rem}
+.meter{height:7px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:8px}
+.meter > i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 10px 10px 0;margin:12px 0}
+.note.warn{border-color:var(--warn);background:var(--warn-soft)}
+.formula{font-family:var(--mono);background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:8px 0 12px;overflow-x:auto;white-space:pre;font-size:.88rem;line-height:1.55}
+table{width:100%;border-collapse:collapse;margin:8px 0 14px;font-size:.92rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.03em}
+.tablewrap{overflow-x:auto}
+.tablewrap table{min-width:520px}
+.btn{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-2)}
+.btn.good{background:var(--good);border-color:var(--good);color:#fff}
+.btn.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select,input[type=text],input[type=search],input[type=number]{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 10px;max-width:100%}
+select:focus,input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* timeline */
+.timeline{position:relative;margin:10px 0 0;padding-left:22px}
+.timeline:before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.step{position:relative;margin-bottom:16px}
+.step:before{content:"";position:absolute;left:-20px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--bg)}
+.step h4{margin:0 0 4px}
+
+/* learn */
+.learn-layout{display:grid;grid-template-columns:230px 1fr;gap:18px;align-items:start}
+.learn-layout > *{min-width:0}
+.side{position:sticky;top:120px;display:flex;flex-direction:column;gap:2px}
+.side button{border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:9px;cursor:pointer;color:var(--muted);font-weight:550;display:flex;justify-content:space-between;gap:6px}
+.side button[aria-current="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.side button .tick{color:var(--good)}
+.module h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.module-foot{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+details{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:8px 0;background:var(--surface)}
+details summary{cursor:pointer;font-weight:600}
+@media (max-width:760px){
+  .learn-layout{grid-template-columns:1fr}
+  .side{position:static;flex-direction:row;overflow-x:auto;scrollbar-width:none}
+  .side::-webkit-scrollbar{display:none}
+  .side button{white-space:nowrap}
+}
+
+/* flashcards */
+.fc-stage{perspective:1400px;margin:14px 0}
+.fc{position:relative;width:100%;min-height:300px;cursor:pointer;transform-style:preserve-3d;transition:transform .45s cubic-bezier(.2,.7,.2,1)}
+.fc.flipped{transform:rotateY(180deg)}
+.fc-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:24px;display:flex;flex-direction:column;overflow:auto}
+.fc-back{transform:rotateY(180deg)}
+.fc-q{font-size:1.25rem;font-weight:650;margin:auto 0;text-align:center}
+.fc-a{font-size:.98rem}
+.fc-meta{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:.82rem}
+.boxes{display:flex;gap:4px}
+.boxes i{width:9px;height:9px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border)}
+.boxes i.on{background:var(--good);border-color:var(--good)}
+.kbd{font-family:var(--mono);font-size:.78rem;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:var(--surface)}
+
+/* quiz */
+.opt{display:block;width:100%;text-align:left;border:1.5px solid var(--border);background:var(--surface);border-radius:12px;padding:12px 14px;margin:8px 0;cursor:pointer}
+.opt:hover:not(:disabled){border-color:var(--accent)}
+.opt.correct{border-color:var(--good);background:var(--good-soft)}
+.opt.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.opt:disabled{cursor:default}
+.explain{border-radius:10px;padding:10px 14px;margin-top:10px;background:var(--surface-2)}
+.qhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.qtext{font-size:1.12rem;font-weight:650;margin:6px 0 10px}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(10,8,8,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+.overlay.open{display:flex}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:18px;max-width:620px;width:100%;max-height:90vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35);animation:pop .22s ease-out}
+@keyframes pop{from{transform:scale(.96);opacity:0}to{transform:none;opacity:1}}
+.modal-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+
+/* checklist */
+.chk{display:flex;gap:10px;align-items:flex-start;padding:8px 4px;border-bottom:1px dashed var(--border);cursor:pointer}
+.chk input{margin-top:5px;accent-color:var(--accent);width:17px;height:17px;flex:none}
+.chk.done span{color:var(--muted);text-decoration:line-through}
+
+/* drills */
+.drill-q{font-size:2.1rem;font-weight:750;text-align:center;margin:18px 0 10px;font-family:var(--mono);letter-spacing:-.02em}
+.drill-in{font-size:1.4rem;text-align:center;width:220px}
+.timer{font-family:var(--mono);font-size:1.2rem;font-weight:700}
+.flash-good{animation:fg .35s}
+.flash-bad{animation:fb .35s}
+@keyframes fg{50%{box-shadow:0 0 0 4px var(--good)}}
+@keyframes fb{50%{box-shadow:0 0 0 4px var(--bad)}}
+
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;z-index:60;opacity:0;pointer-events:none;transition:opacity .25s}
+.toast.show{opacity:1}
+footer{color:var(--muted);font-size:.82rem;padding:20px 0 40px;border-top:1px solid var(--border)}
+@media (max-width:520px){
+  .hide-sm{display:none}
+  .fc{min-height:340px}
+  .fc-q{font-size:1.1rem}
+  .hero h1{font-size:1.4rem}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand"><div class="logo">IB</div><span>IB Prep Studio</span></div>
+      <button class="iconbtn" id="themeBtn" title="Toggle theme">◐<span class="hide-sm"> Theme</span></button>
+      <button class="iconbtn popbtn" id="popBtn" title="Random pop quiz question">⚡<span class="hide-sm"> Pop quiz</span></button>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button data-view="home">Home</button>
+      <button data-view="roadmap">Roadmap</button>
+      <button data-view="learn">Learn</button>
+      <button data-view="flash">Flashcards</button>
+      <button data-view="quiz">Quiz</button>
+      <button data-view="drills">Math drills</button>
+      <button data-view="check">Checklist</button>
+      <button data-view="cheat">Cheat sheet</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- HOME -->
+<section class="view" id="view-home">
+  <div class="hero">
+    <h1>Break into investment banking — and ace the interview.</h1>
+    <p>Everything you need in one offline page: the recruiting roadmap, the technical topics every guide (like the "Red Book") drills, behavioral prep, spaced-repetition flashcards, quizzes with explanations, and timed mental-math sprints.</p>
+    <div class="row">
+      <button data-go="roadmap">Start with the roadmap</button>
+      <button class="ghost" data-go="flash">Flashcards</button>
+      <button class="ghost" data-go="quiz">Take a quiz</button>
+    </div>
+  </div>
+  <div class="grid g4" id="dash"></div>
+  <h3>Pop-up quizzes while you study</h3>
+  <div class="card">
+    <p>Hit <b>⚡ Pop quiz</b> anytime for a random question, or have one pop up automatically while you read.</p>
+    <div class="row">
+      <label for="popInterval" class="small muted">Auto pop-up every</label>
+      <select id="popInterval">
+        <option value="0">Off</option>
+        <option value="3">3 minutes</option>
+        <option value="5">5 minutes</option>
+        <option value="10">10 minutes</option>
+        <option value="15">15 minutes</option>
+      </select>
+      <label for="popTopic" class="small muted">from</label>
+      <select id="popTopic"></select>
+    </div>
+  </div>
+  <h3>Suggested 8-week study plan</h3>
+  <div class="card tablewrap">
+    <table>
+      <thead><tr><th>Week</th><th>Focus</th><th>Do this</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Industry &amp; story</td><td>Learn bank types, groups, and the deal process. Draft "walk me through your resume" and "why IB".</td></tr>
+        <tr><td>2</td><td>Accounting</td><td>Three statements and how they link. Drill every "$10 change" walk-through until it's automatic.</td></tr>
+        <tr><td>3</td><td>EV &amp; equity value</td><td>Bridge from equity value to EV, diluted shares (treasury stock method), which multiple goes with which metric.</td></tr>
+        <tr><td>4</td><td>Valuation &amp; DCF</td><td>Comps, precedents, DCF from scratch. Memorise UFCF, WACC, CAPM and terminal value formulas.</td></tr>
+        <tr><td>5</td><td>M&amp;A</td><td>Merger model steps, accretion/dilution shortcuts, purchase price allocation and goodwill.</td></tr>
+        <tr><td>6</td><td>LBO</td><td>LBO mechanics, paper LBO in 5 minutes, IRR rules of thumb. Build a simple LBO in Excel.</td></tr>
+        <tr><td>7</td><td>Markets &amp; deals</td><td>Prepare 2 deals and 1 stock pitch. Know rates, indices and recent big deals (check the news; this page is offline).</td></tr>
+        <tr><td>8</td><td>Mock interviews</td><td>Daily mixed quizzes, timed math sprints, 3+ mock interviews with friends or alumni.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section class="view" id="view-roadmap">
+  <h2>The roadmap: how people actually get in</h2>
+  <p class="muted">Timelines shift every year and differ by country. Check your school's career office and bank websites for current dates.</p>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">The recruiting funnel</h3>
+      <div class="timeline">
+        <div class="step"><h4>1 · Foundations</h4><div class="small">Strong grades, a finance or investing club, leadership roles, any finance-adjacent experience (boutique, Big 4 valuation/transaction services, corporate finance, equity research, PE/VC internships).</div></div>
+        <div class="step"><h4>2 · Networking</h4><div class="small">Alumni and bankers via cold emails and LinkedIn. Aim for 2–4 calls a week and track every contact. Referrals get you past resume screens.</div></div>
+        <div class="step"><h4>3 · Applications</h4><div class="small">Apply early: many programs fill on a rolling basis. One-page resume, tailored cover letter where required.</div></div>
+        <div class="step"><h4>4 · Screens</h4><div class="small">Online tests (numerical, logical, situational), recorded video interviews (HireVue-style), phone screens.</div></div>
+        <div class="step"><h4>5 · Superday</h4><div class="small">3–6 back-to-back interviews with analysts up to MDs: fit, technicals, deal discussion. Some firms add a case study or modeling test.</div></div>
+        <div class="step"><h4>6 · Internship → return offer</h4><div class="small">The summer internship is the main route to a full-time analyst offer. Work hard, be reliable, catch your own mistakes.</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Entry points</h3>
+      <table>
+        <tr><th>Route</th><th>Notes</th></tr>
+        <tr><td><b>Undergrad summer analyst</b></td><td>Main route. In the US, recruiting for junior-year internships often starts in sophomore year.</td></tr>
+        <tr><td><b>UK / Europe</b></td><td>Spring weeks (first year) → summer internship (penultimate year), plus off-cycle internships.</td></tr>
+        <tr><td><b>Asia (HK, SG, SEA)</b></td><td>Summer and off-cycle internships are common. Local language and market knowledge are real advantages.</td></tr>
+        <tr><td><b>MBA associate</b></td><td>Career switchers. Summer associate between MBA years.</td></tr>
+        <tr><td><b>Lateral</b></td><td>From Big 4 deal advisory, corporate banking, boutiques, or corporate development. Your deal experience matters most.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Know the landscape</h3>
+  <div class="grid g2">
+    <div class="card">
+      <h4>Bank tiers</h4>
+      <ul class="small">
+        <li><b>Bulge bracket:</b> global, full-service (e.g., Goldman Sachs, Morgan Stanley, J.P. Morgan, BofA, Citi). Big balance sheets, every product.</li>
+        <li><b>Elite boutiques:</b> advisory-focused, big M&amp;A deals (e.g., Evercore, Lazard, Centerview, PJT, Moelis, Perella Weinberg).</li>
+        <li><b>Middle market:</b> smaller deals, often private companies (e.g., Houlihan Lokey, William Blair, Harris Williams, Baird, Lincoln).</li>
+        <li><b>Regional / local banks &amp; boutiques:</b> strong in their home market. A good way in, and a good way to lateral later.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Groups</h4>
+      <ul class="small">
+        <li><b>Coverage (industry):</b> TMT, Healthcare, FIG (banks/insurers), Industrials, Consumer &amp; Retail, Energy, Real Estate, Infrastructure.</li>
+        <li><b>Product:</b> M&amp;A, ECM (IPOs, follow-ons), DCM (bonds), Leveraged Finance, Restructuring.</li>
+        <li><b>Hierarchy:</b> Analyst → Associate → Vice President → Director / SVP → Managing Director.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>What an analyst actually does</h3>
+  <div class="card">
+    <ul>
+      <li>Builds and updates <b>models</b>: comps, DCFs, merger models, LBOs, three-statement models.</li>
+      <li>Makes <b>pitch books</b> and marketing materials: teasers, CIMs, management presentations.</li>
+      <li>Runs <b>deal process</b> logistics: buyer lists, data rooms, NDAs, tracking bids, diligence requests.</li>
+      <li>Checks everything. Accuracy and attention to detail matter more than brilliance in year one.</li>
+    </ul>
+    <h4>A typical sell-side M&amp;A process</h4>
+    <ol class="small">
+      <li><b>Preparation:</b> pitch and win the mandate, gather information, build the model, write the teaser and CIM, build the buyer list.</li>
+      <li><b>Round 1:</b> send teasers → buyers sign NDAs → CIM → non-binding indications of interest (IOIs).</li>
+      <li><b>Round 2:</b> shortlist → management presentations, data room access, site visits → binding letters of intent (LOIs) with a markup of the purchase agreement.</li>
+      <li><b>Negotiation &amp; signing:</b> pick the winner, negotiate the purchase agreement (SPA / merger agreement), fairness opinion, sign.</li>
+      <li><b>Closing:</b> regulatory and shareholder approvals, financing, close.</li>
+    </ol>
+  </div>
+
+  <h3>Networking that works</h3>
+  <div class="grid g2">
+    <div class="card">
+      <h4>Cold email template</h4>
+      <div class="formula" style="white-space:pre-wrap">Subject: [School] student — quick question about [Bank] [Group]
+
+Hi [Name],
+
+I'm a [year] at [School] studying [major], and I'm interested in [group / investment banking]. I noticed you also [went to X / worked at Y] and would really value 15 minutes of your perspective on your path and the team.
+
+Would you have time for a short call in the next two weeks? Happy to work around your schedule.
+
+Best,
+[Name] · [phone] · resume attached</div>
+    </div>
+    <div class="card">
+      <h4>Coffee chat playbook</h4>
+      <ul class="small">
+        <li>Research them first: LinkedIn, deals their group announced.</li>
+        <li>Open with a 30-second version of your story.</li>
+        <li>Ask about <i>them</i>: how they chose the group, a deal they enjoyed, what makes analysts successful, culture.</li>
+        <li>Don't ask for a job. At the end ask: "Is there anyone else you'd suggest I speak with?"</li>
+        <li>Thank-you note within 24 hours; update them occasionally (e.g., when you apply).</li>
+        <li>Track name, firm, date, notes, and follow-up in a spreadsheet.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Resume rules</h3>
+  <div class="card">
+    <ul>
+      <li><b>One page.</b> Education at the top (students), then experience, then leadership/activities, then skills &amp; interests.</li>
+      <li>Every bullet: <b>action verb + what you did + quantified result</b>. "Built a DCF valuing a $250M target, used in the investment committee memo" beats "Helped with valuation".</li>
+      <li>Include GPA if strong; test scores optional by region.</li>
+      <li>Interests line: specific and true (they will ask about it).</li>
+      <li>Anything on the page is fair game in an interview. Be ready to go deep on every line.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- LEARN -->
+<section class="view" id="view-learn">
+  <div class="learn-layout">
+    <div class="side" id="learnSide"></div>
+    <div id="learnBody"></div>
+  </div>
+</section>
+
+<!-- FLASHCARDS -->
+<section class="view" id="view-flash">
+  <h2>Flashcards</h2>
+  <div class="row">
+    <select id="fcDeck" aria-label="Deck"></select>
+    <select id="fcMode" aria-label="Mode">
+      <option value="due">Not yet mastered</option>
+      <option value="all">All cards</option>
+    </select>
+    <input type="search" id="fcSearch" placeholder="Search cards…" aria-label="Search cards">
+    <button class="btn" id="fcShuffle">Shuffle</button>
+  </div>
+  <div class="row small muted" style="margin-top:10px" id="fcStats"></div>
+  <div class="meter"><i id="fcMeter" style="width:0"></i></div>
+  <div class="fc-stage">
+    <div class="fc" id="fc" tabindex="0" aria-live="polite">
+      <div class="fc-face fc-front"><div class="fc-meta"><span id="fcTopic"></span><span id="fcPos"></span></div><div class="fc-q" id="fcQ"></div><div class="small muted" style="text-align:center">Tap or press <span class="kbd">Space</span> to flip</div></div>
+      <div class="fc-face fc-back"><div class="fc-meta"><span>Answer</span><span class="boxes" id="fcBoxes"></span></div><div class="fc-a" id="fcA"></div></div>
+    </div>
+  </div>
+  <div class="row" style="justify-content:center">
+    <button class="btn" id="fcPrev">← Prev</button>
+    <button class="btn bad" id="fcAgain">Again <span class="kbd">1</span></button>
+    <button class="btn good" id="fcGot">Got it <span class="kbd">2</span></button>
+    <button class="btn" id="fcNext">Next →</button>
+  </div>
+  <p class="small muted" style="text-align:center;margin-top:12px">Spaced repetition: "Got it" three times marks a card as mastered. "Again" sends it back to the start. Progress is saved in this browser.</p>
+  <div style="text-align:center"><button class="btn" id="fcReset">Reset flashcard progress</button></div>
+</section>
+
+<!-- QUIZ -->
+<section class="view" id="view-quiz">
+  <h2>Quiz</h2>
+  <div id="quizSetup" class="card">
+    <div class="row">
+      <label class="small muted" for="qTopic">Topic</label>
+      <select id="qTopic"></select>
+      <label class="small muted" for="qCount">Questions</label>
+      <select id="qCount"><option>5</option><option selected>10</option><option>20</option><option value="999">All</option></select>
+      <label class="small muted"><input type="checkbox" id="qTimed"> 45s timer per question</label>
+      <button class="btn primary" id="qStart">Start quiz</button>
+    </div>
+    <div id="qHistory" class="small muted" style="margin-top:12px"></div>
+  </div>
+  <div id="quizRun" class="card" style="display:none"></div>
+</section>
+
+<!-- DRILLS -->
+<section class="view" id="view-drills">
+  <h2>Mental-math sprint</h2>
+  <p class="muted">Banks and online tests reward quick arithmetic: percentages, multiples, growth. Answer as many as you can in 60 seconds. Answers are whole numbers.</p>
+  <div class="card" id="drillCard" style="text-align:center">
+    <div class="row" style="justify-content:space-between">
+      <span>Score: <b id="drScore">0</b></span>
+      <span class="timer" id="drTimer">60.0</span>
+      <span class="small muted">Best: <b id="drBest">0</b></span>
+    </div>
+    <div class="drill-q" id="drQ">Ready?</div>
+    <div class="row" style="justify-content:center">
+      <input type="number" inputmode="decimal" id="drIn" class="drill-in" aria-label="Your answer" disabled>
+    </div>
+    <div class="row" style="justify-content:center;margin-top:12px">
+      <button class="btn primary" id="drStart">Start 60s sprint</button>
+      <button class="btn" id="drSkip" disabled>Skip</button>
+    </div>
+    <div id="drLog" class="small muted" style="margin-top:12px;text-align:left"></div>
+  </div>
+  <h3>Brain teasers</h3>
+  <div id="teasers"></div>
+</section>
+
+<!-- CHECKLIST -->
+<section class="view" id="view-check">
+  <h2>Prep checklist</h2>
+  <p class="muted">Tick things off as you go. Saved in this browser.</p>
+  <div class="meter" style="margin-bottom:16px"><i id="chkMeter" style="width:0"></i></div>
+  <div class="grid g2" id="checklist"></div>
+</section>
+
+<!-- CHEAT SHEET -->
+<section class="view" id="view-cheat">
+  <h2>Formula cheat sheet</h2>
+  <div class="grid g2">
+    <div class="card"><h4>Enterprise value bridge</h4>
+<div class="formula">EV = Equity Value
+   + Debt + Preferred Stock
+   + Noncontrolling Interest
+   − Cash &amp; Equivalents
+   (+ other debt-like items:
+      leases, unfunded pensions)</div></div>
+    <div class="card"><h4>Diluted shares (treasury stock method)</h4>
+<div class="formula">New shares = ITM options
+  − (options × strike) ÷ share price
+Diluted = Basic + New shares (+ ITM RSUs,
+  ITM convertibles)</div></div>
+    <div class="card"><h4>Unlevered free cash flow</h4>
+<div class="formula">UFCF = EBIT × (1 − t)
+     + D&amp;A (and other non-cash)
+     − CapEx
+     − Increase in NWC</div></div>
+    <div class="card"><h4>Levered free cash flow</h4>
+<div class="formula">LFCF = Net Income + D&amp;A
+     − CapEx − Increase in NWC
+     − Mandatory debt repayment
+(discount at cost of equity → equity value)</div></div>
+    <div class="card"><h4>WACC &amp; CAPM</h4>
+<div class="formula">WACC = E/(D+E) × Re + D/(D+E) × Rd × (1 − t)
+Re   = Rf + β × (Equity Risk Premium)</div></div>
+    <div class="card"><h4>Beta</h4>
+<div class="formula">βu = βL ÷ [1 + (1 − t) × D/E]
+βL = βu × [1 + (1 − t) × D/E]</div></div>
+    <div class="card"><h4>Terminal value</h4>
+<div class="formula">Gordon growth:
+  TVn = FCFn × (1 + g) ÷ (WACC − g)
+Exit multiple:
+  TVn = EBITDAn × exit multiple
+PV  = TVn ÷ (1 + WACC)^n</div></div>
+    <div class="card"><h4>Accretion / dilution shortcut</h4>
+<div class="formula">Cost of cash  = forgone interest × (1 − t)
+Cost of debt  = interest rate × (1 − t)
+Cost of stock = acquirer E/P (1 ÷ P/E)
+Yield of target = target E/P at purchase price
+Accretive if weighted cost &lt; target yield</div></div>
+    <div class="card"><h4>Returns (LBO)</h4>
+<div class="formula">MOIC = Exit equity ÷ Entry equity
+IRR  ≈ MOIC^(1/years) − 1
+2x/3y ≈ 26%   2x/5y ≈ 15%
+3x/3y ≈ 44%   3x/5y ≈ 25%
+Rule of 72: years to double ≈ 72 ÷ rate</div></div>
+    <div class="card"><h4>Banks (FIG)</h4>
+<div class="formula">NIM  = Net interest income ÷ avg earning assets
+CIR  = Operating expenses ÷ operating income
+LDR  = Loans ÷ Deposits
+ROE  = Net income ÷ avg equity
+P/BV (justified) = (ROE − g) ÷ (COE − g)</div></div>
+  </div>
+</section>
+
+<footer>
+  <p><b>About the sources.</b> The topics follow the structure of popular IB interview guides, such as Wall Street Prep's "Red Book" (accounting, enterprise value, valuation, DCF, M&amp;A, LBO, fit). All questions, answers and explanations here are written from scratch from standard finance concepts. This page is not affiliated with Wall Street Prep or any other publisher and doesn't reproduce their text. Use it alongside your own copy of whatever guide you're studying.</p>
+  <p>Works fully offline. Progress is stored only in this browser.</p>
+</footer>
+</main>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal" id="modal"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ---------------- storage ---------------- */
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("ibprep:"+k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("ibprep:"+k, JSON.stringify(v)); }catch(e){} }
+};
+
+/* ---------------- topics ---------------- */
+const TOPICS = {
+  acc:  "Accounting",
+  ev:   "Equity & Enterprise Value",
+  val:  "Valuation",
+  dcf:  "DCF",
+  ma:   "M&A",
+  lbo:  "LBO",
+  fig:  "Banks (FIG)",
+  mkt:  "Industry & Markets",
+  beh:  "Behavioral / Fit",
+  math: "Brain teasers & Math"
+};
+
+/* ---------------- learn modules ---------------- */
+const MODULES = [
+{ id:"acc", title:"Accounting", body:`
+<p>Accounting is the language of every model. Interviewers test whether you can move numbers through the three statements without thinking.</p>
+<h3>The three statements</h3>
+<ul>
+<li><b>Income statement (IS):</b> revenue minus expenses over a period → net income.</li>
+<li><b>Balance sheet (BS):</b> a snapshot at a point in time. <code>Assets = Liabilities + Equity</code>.</li>
+<li><b>Cash flow statement (CFS):</b> starts with net income, adjusts for non-cash items and working capital (CFO), then investing (CFI) and financing (CFF) → net change in cash.</li>
+</ul>
+<h3>How they link</h3>
+<ol>
+<li>Net income → top of the CFS, and → retained earnings on the BS (minus dividends).</li>
+<li>Non-cash expenses (D&amp;A, stock-based compensation, impairments) are added back on the CFS.</li>
+<li>Changes in operating assets and liabilities (AR, inventory, AP, deferred revenue) → CFO.</li>
+<li>CapEx (CFI) increases PP&amp;E; depreciation reduces it.</li>
+<li>Debt and equity issuance or repayment, and dividends → CFF and the matching BS lines.</li>
+<li>Ending cash on the CFS = cash on the BS. If the BS balances, you're done.</li>
+</ol>
+<h3>The "$10 change" walk-through (25% tax)</h3>
+<p>Always go <b>IS → CFS → BS</b> and finish by checking that the BS balances.</p>
+<div class="tablewrap"><table>
+<tr><th>Change</th><th>Income statement</th><th>Cash flow statement</th><th>Balance sheet</th></tr>
+<tr><td>Depreciation +10</td><td>Pre-tax −10, NI −7.5</td><td>NI −7.5, add back +10 → cash +2.5</td><td>Cash +2.5, PP&amp;E −10 (assets −7.5); RE −7.5</td></tr>
+<tr><td>Inventory +10 bought with cash</td><td>No change</td><td>Inventory increase −10 → cash −10</td><td>Inventory +10, cash −10. No net change</td></tr>
+<tr><td>Inventory +10 on credit (AP)</td><td>No change</td><td>Inventory −10, AP +10 → cash 0</td><td>Inventory +10; AP +10</td></tr>
+<tr><td>Inventory write-down 10</td><td>Pre-tax −10, NI −7.5</td><td>NI −7.5, add back +10 → cash +2.5</td><td>Cash +2.5, inventory −10; RE −7.5</td></tr>
+<tr><td>Sale of 10 on credit (AR)</td><td>Revenue +10, NI +7.5</td><td>NI +7.5, AR increase −10 → cash −2.5</td><td>AR +10, cash −2.5 (assets +7.5); RE +7.5</td></tr>
+<tr><td>Stock-based comp 10</td><td>Pre-tax −10, NI −7.5</td><td>NI −7.5, add back +10 → cash +2.5</td><td>Cash +2.5; RE −7.5, APIC +10</td></tr>
+<tr><td>Dividend 10</td><td>No change</td><td>CFF −10</td><td>Cash −10; RE −10</td></tr>
+<tr><td>Borrow 100 to buy PP&amp;E</td><td>No change (at first)</td><td>CFI −100, CFF +100 → cash 0</td><td>PP&amp;E +100; debt +100</td></tr>
+</table></div>
+<details><summary>Harder: the year after borrowing 100 for PP&amp;E (10% interest, 10-year life, 10 of principal repaid)</summary>
+<p><b>IS:</b> depreciation 10 + interest 10 → pre-tax −20, NI −15.<br>
+<b>CFS:</b> NI −15 + D&amp;A 10 = CFO −5; debt repayment −10 in CFF → cash −15.<br>
+<b>BS:</b> cash −15, PP&amp;E −10 → assets −25. Debt −10, RE −15 → L+E −25. ✔</p></details>
+<details><summary>Deferred revenue: customer prepays 100 for a service delivered next year</summary>
+<p><b>Cash received:</b> cash +100, deferred revenue (liability) +100; on the CFS, the increase in deferred revenue is +100 in CFO.<br>
+<b>When delivered:</b> revenue +100 → NI +75. CFS: NI +75, deferred revenue decrease −100 → cash −25 (the tax paid). BS: cash −25; deferred revenue −100, RE +75. ✔</p></details>
+<h3>Must-know concepts</h3>
+<ul>
+<li><b>Working capital</b> = current assets − current liabilities. Models use <i>operating</i> NWC: (AR + inventory + prepaids) − (AP + accrued expenses + deferred revenue). An increase in NWC uses cash.</li>
+<li><b>Goodwill:</b> the purchase price above the fair value of the target's net identifiable assets. Not amortized under US GAAP or IFRS for public companies; tested for impairment.</li>
+<li><b>Deferred tax liability (DTL):</b> book taxes higher than cash taxes today (e.g., accelerated tax depreciation), so you pay more later. A <b>DTA</b> is the reverse (e.g., NOLs).</li>
+<li><b>FIFO vs LIFO</b> when prices are rising: LIFO → higher COGS, lower NI, lower taxes, lower inventory. IFRS bans LIFO.</li>
+<li><b>Capitalize vs expense:</b> capitalize when the benefit lasts more than a year (PP&amp;E, some software), expense when it's used up in the period.</li>
+<li><b>EBITDA:</b> a proxy for operating cash flow that ignores capital structure. It ignores CapEx, working capital, interest and taxes, so a company can have positive EBITDA and still go bankrupt.</li>
+<li><b>Leases (ASC 842 / IFRS 16):</b> most leases put a right-of-use asset and a lease liability on the balance sheet.</li>
+</ul>`},
+{ id:"ev", title:"Equity & Enterprise Value", body:`
+<p><b>Equity value</b> is what the business is worth to common shareholders: diluted shares × share price. <b>Enterprise value</b> is what the core operations are worth to <i>all</i> capital providers.</p>
+<div class="formula">EV = Equity Value + Debt + Preferred + Noncontrolling Interest − Cash</div>
+<h3>Why each adjustment</h3>
+<ul>
+<li><b>Add debt and preferred:</b> other investors with claims on the operating assets.</li>
+<li><b>Subtract cash:</b> a non-operating asset. In a sale, the buyer effectively gets it back (or it pays down debt).</li>
+<li><b>Add NCI:</b> if a parent owns more than 50% of a subsidiary, it consolidates 100% of the subsidiary's revenue and EBITDA. Adding NCI makes EV cover that same 100%.</li>
+<li><b>Equity investments</b> (associates, under 50% owned) are often <i>subtracted</i>, because their earnings aren't in EBITDA.</li>
+</ul>
+<h3>Diluted shares: treasury stock method</h3>
+<p>Assume in-the-money options are exercised, and the company uses the proceeds to buy back shares at the current price.</p>
+<div class="formula">Example: 100 basic shares at $20; 10 options with a $10 strike
+Proceeds = 10 × $10 = $100 → buys back $100 ÷ $20 = 5 shares
+Net new shares = 10 − 5 = 5 → diluted = 105</div>
+<p>In-the-money <b>convertible bonds</b>: count the conversion shares and take the bond out of debt. Out-of-the-money: leave it as debt.</p>
+<h3>What changes what?</h3>
+<div class="tablewrap"><table>
+<tr><th>Event</th><th>Equity value</th><th>Enterprise value</th></tr>
+<tr><td>Raise $100 debt, keep it as cash</td><td>No change</td><td>No change (debt +100, cash +100)</td></tr>
+<tr><td>Issue $100 of new shares</td><td>+100</td><td>No change (cash offsets)</td></tr>
+<tr><td>Pay a $50 dividend</td><td>−50</td><td>No change</td></tr>
+<tr><td>Spend $100 cash on PP&amp;E</td><td>No change</td><td>+100 (cash became an operating asset)</td></tr>
+<tr><td>Use $100 cash to repay debt</td><td>No change</td><td>No change</td></tr>
+</table></div>
+<h3>Matching multiples</h3>
+<p>The numerator and denominator must belong to the same investors.</p>
+<ul>
+<li><b>EV multiples:</b> EV/Revenue, EV/EBITDA, EV/EBIT, EV/UFCF (metrics before interest, so they belong to everyone).</li>
+<li><b>Equity value multiples:</b> P/E, P/BV, P/TBV, Price/LFCF (metrics after interest, so they belong to shareholders).</li>
+<li>EV/Net income is a mismatch. So is P/EBITDA.</li>
+</ul>
+<div class="note">Equity value can't be negative (shares don't trade below zero), but <b>EV can</b>: e.g., a company with more cash than its market cap plus debt.</div>`},
+{ id:"val", title:"Valuation", body:`
+<h3>The core methods</h3>
+<ul>
+<li><b>Trading comparables (comps):</b> value the target using multiples of similar public companies.</li>
+<li><b>Precedent transactions:</b> multiples paid in past acquisitions of similar companies.</li>
+<li><b>DCF:</b> intrinsic value, the present value of future cash flows.</li>
+<li>Others: <b>LBO analysis</b> (what a sponsor could pay), <b>sum-of-the-parts</b> (conglomerates), <b>liquidation</b> (distress), <b>DDM</b> and <b>P/BV</b> for banks.</li>
+</ul>
+<h3>How to run comps</h3>
+<ol>
+<li>Pick peers by industry, size, geography, growth, margins and business model.</li>
+<li>Gather financials: LTM and forward estimates. Calendarize to a common fiscal year end and remove one-offs.</li>
+<li>Calculate EV and equity value, then the multiples (EV/EBITDA, EV/Revenue, P/E…).</li>
+<li>Apply the range (e.g., 25th–75th percentile or median) to the target's metrics.</li>
+</ol>
+<h3>Which method gives the highest value?</h3>
+<p>Usually <b>precedent transactions</b>, because they include a <b>control premium</b> (often 20–40%) and expected synergies. A DCF can come out higher or lower: it's the most sensitive to assumptions. LBO analysis often sets the <i>floor</i>, because sponsors need a minimum return and have no synergies.</p>
+<h3>Football field</h3>
+<p>A bar chart with the valuation range from each method side by side, often with the 52-week trading range and the offer price. It's the standard summary page in a pitch book.</p>
+<h3>Why does one company trade at a higher multiple?</h3>
+<p>Faster growth, higher margins, higher returns on capital, lower risk (recurring revenue, diversification), market leadership, or takeover speculation.</p>
+<h3>When does a DCF not work well?</h3>
+<p>Early-stage companies with unpredictable or negative cash flows, and <b>banks and insurers</b>, where debt is part of operations rather than financing. For those, use P/BV, P/E and dividend discount models.</p>`},
+{ id:"dcf", title:"DCF", body:`
+<h3>Walk me through a DCF (30-second version)</h3>
+<p>"Project the company's unlevered free cash flow for 5–10 years. Calculate a terminal value with either the Gordon growth or exit multiple method. Discount the cash flows and the terminal value to today at the WACC. Their sum is enterprise value. Subtract net debt and other claims to get equity value, then divide by diluted shares for an implied share price."</p>
+<h3>Formulas</h3>
+<div class="formula">UFCF = EBIT × (1 − t) + D&amp;A − CapEx − ΔNWC
+WACC = E/(D+E) × Re + D/(D+E) × Rd × (1 − t)
+Re   = Rf + β × ERP                       (CAPM)
+βu   = βL ÷ [1 + (1 − t) × D/E]           (unlever peers, take median, relever)
+TV   = FCFn × (1 + g) ÷ (WACC − g)        (Gordon growth)
+TV   = EBITDAn × multiple                 (exit multiple)</div>
+<h3>Key intuitions</h3>
+<ul>
+<li><b>Cost of equity > cost of debt:</b> equity is paid last and has no guaranteed returns, and interest is tax-deductible.</li>
+<li>Adding some debt usually <b>lowers WACC</b> at first (cheaper, tax-deductible capital). Too much raises the cost of both debt and equity, and WACC climbs.</li>
+<li>Terminal value often makes up <b>60–80%</b> of EV, which is why sensitivity tables on WACC and g (or the exit multiple) matter.</li>
+<li>A 1% change in the <b>discount rate</b> usually moves value more than a 1% change in revenue.</li>
+<li>The perpetual growth rate should not exceed long-term nominal GDP growth (often 2–3% for developed markets).</li>
+<li>Cross-check: back into the implied exit multiple from a Gordon growth TV, and the implied growth rate from an exit multiple TV.</li>
+<li><b>Mid-year convention</b> (cash arrives evenly through the year) discounts by n − 0.5 years, which <b>raises</b> value a little.</li>
+<li><b>Levered DCF:</b> discount LFCF at the cost of equity to get <i>equity</i> value directly.</li>
+</ul>
+<h3>Worked mini-example</h3>
+<div class="formula">Rf 4%, β 1.2, ERP 5% → Re = 4% + 1.2 × 5% = 10%
+E 60%, D 40%, Rd 5%, t 25% → WACC = 0.6×10% + 0.4×5%×0.75 = 7.5%
+FCF next year 105, g 2%, WACC 9% → TV = 105 ÷ 7% = 1,500</div>`},
+{ id:"ma", title:"M&A", body:`
+<h3>Why buy another company?</h3>
+<p>Growth (new products, customers, geographies), synergies, market share and pricing power, technology and talent, vertical integration, tax benefits, or because the target is undervalued.</p>
+<h3>Walk me through a merger model</h3>
+<ol>
+<li>Project both companies' financials. Set the purchase price (premium to the current price) and the funding mix (cash, debt, stock).</li>
+<li>Purchase price allocation: write up assets, create new intangibles, calculate goodwill.</li>
+<li>Combine the income statements: add synergies; subtract forgone interest on cash, new interest on debt, and new D&amp;A from write-ups.</li>
+<li>Pro-forma EPS = combined net income ÷ (acquirer shares + new shares issued).</li>
+<li>Compare with the acquirer's standalone EPS → <b>accretive</b> (higher) or <b>dilutive</b> (lower).</li>
+</ol>
+<h3>Accretion/dilution shortcuts (no synergies)</h3>
+<ul>
+<li><b>All stock:</b> accretive if the acquirer's P/E > the target's P/E at the purchase price.</li>
+<li><b>General rule:</b> compare the weighted after-tax cost of the funding with the target's earnings yield (1 ÷ purchase P/E).
+  <ul><li>Cost of cash = forgone interest rate × (1 − t)</li><li>Cost of debt = interest rate × (1 − t)</li><li>Cost of stock = acquirer's earnings yield = 1 ÷ acquirer P/E</li></ul></li>
+</ul>
+<div class="formula">Debt at 8% pre-tax, 25% tax → 6% after tax
+Target bought at 10x P/E → earnings yield 10%
+6% &lt; 10% → accretive</div>
+<h3>Purchase price allocation &amp; goodwill</h3>
+<div class="formula">Goodwill = Equity purchase price
+         − (Target book value + asset write-ups − new DTL)
+Example: price 1,000; BV 600; write-ups 100 (ignoring DTL)
+→ Goodwill = 1,000 − 700 = 300</div>
+<h3>Cash vs stock</h3>
+<ul>
+<li><b>Cash/debt:</b> cheaper when rates are low, doesn't dilute ownership, gives the seller certainty.</li>
+<li><b>Stock:</b> when the acquirer's shares are richly valued, it lacks cash or debt capacity, or wants the seller to share the risk.</li>
+</ul>
+<h3>Deal vocabulary</h3>
+<ul>
+<li><b>IOI / LOI:</b> non-binding first-round bid / more definitive second-round bid.</li>
+<li><b>Fairness opinion:</b> a bank's opinion to the board that the price is fair from a financial point of view.</li>
+<li><b>Break fee:</b> what the target pays if it walks away, e.g., for a superior proposal. A <b>reverse break fee</b> is paid by the buyer (e.g., financing or regulatory failure).</li>
+<li><b>Fixed vs floating exchange ratio:</b> a fixed number of shares vs a fixed value per target share.</li>
+<li><b>Hostile defenses:</b> poison pill (shareholder rights plan), staggered board, white knight.</li>
+<li><b>Revenue vs cost synergies:</b> cross-selling and pricing vs removing overlapping costs. Cost synergies are seen as more reliable.</li>
+</ul>`},
+{ id:"lbo", title:"LBO", body:`
+<h3>Walk me through an LBO</h3>
+<ol>
+<li>A PE firm buys a company using a lot of debt plus some equity (often 40–60% equity today, depending on markets).</li>
+<li>Build <b>sources &amp; uses</b>: uses = purchase equity, refinanced debt, fees; sources = new debt tranches + sponsor equity.</li>
+<li>Project cash flows; use free cash flow to pay interest and pay down debt.</li>
+<li>Exit after 3–7 years at a multiple of EBITDA. Exit equity = exit EV − remaining net debt.</li>
+<li>Calculate <b>MOIC</b> and <b>IRR</b> on the sponsor's equity.</li>
+</ol>
+<h3>The three return drivers</h3>
+<ol><li><b>EBITDA growth</b> (revenue growth, margin improvement)</li><li><b>Debt paydown</b> (deleveraging moves value from lenders to equity)</li><li><b>Multiple expansion</b> (exit at a higher multiple than entry; don't plan on it)</li></ol>
+<h3>What makes a good LBO candidate</h3>
+<p>Stable, predictable cash flow; low CapEx and working capital needs; strong market position; room for cost cuts; little existing debt; good management; a clear exit.</p>
+<h3>Paper LBO (no calculator)</h3>
+<div class="formula">Buy EBITDA 100 at 10x → EV 1,000
+Funding: 60% debt (600) + 40% equity (400)
+Year 5: EBITDA 130, exit at 10x → EV 1,300
+Debt paid down to 300 → exit equity 1,000
+MOIC = 1,000 ÷ 400 = 2.5x → IRR ≈ 20%</div>
+<h3>IRR rules of thumb</h3>
+<div class="tablewrap"><table><tr><th>MOIC</th><th>3 years</th><th>5 years</th></tr>
+<tr><td>2.0x</td><td>~26%</td><td>~15%</td></tr>
+<tr><td>2.5x</td><td>~36%</td><td>~20%</td></tr>
+<tr><td>3.0x</td><td>~44%</td><td>~25%</td></tr></table></div>
+<h3>Debt stack (most to least senior)</h3>
+<ul>
+<li><b>Revolver</b> and <b>term loans</b> (TLA amortizes, TLB is mostly bullet): secured, floating rate, lowest cost.</li>
+<li><b>Senior notes / high-yield bonds:</b> fixed rate, longer term, fewer covenants.</li>
+<li><b>Subordinated notes, mezzanine, PIK:</b> highest cost, sometimes with equity kickers (warrants).</li>
+</ul>
+<p><b>Maintenance covenants</b> are tested regularly (e.g., leverage below 5.0x each quarter). <b>Incurrence covenants</b> are only tested when the company takes an action (borrowing more, paying dividends). A <b>dividend recap</b> means raising new debt to pay the sponsor a dividend.</p>
+<h3>Why does leverage boost returns?</h3>
+<p>The sponsor puts in less equity, but keeps all the upside after a fixed interest cost. Interest is also tax-deductible. More leverage also means more risk of default.</p>`},
+{ id:"fig", title:"Banks (FIG)", body:`
+<p>Financial institutions are valued differently, and FIG interviews ask about it. If you're interviewing for FIG, know these cold.</p>
+<h3>Why not EV/EBITDA or an unlevered DCF?</h3>
+<p>For a bank, debt (deposits, borrowings) is the <b>raw material</b> of the business, and interest expense is an operating cost. Separating operations from financing makes no sense, so use <b>equity value</b> metrics: <b>P/E, P/BV, P/TBV</b>, and a <b>dividend discount model</b> (often with a target capital ratio: excess capital above it is "distributable").</p>
+<h3>Key metrics</h3>
+<div class="tablewrap"><table>
+<tr><th>Metric</th><th>What it shows</th></tr>
+<tr><td>Net interest margin (NIM)</td><td>Net interest income ÷ average earning assets: core lending spread</td></tr>
+<tr><td>Cost-to-income ratio (CIR)</td><td>Operating expenses ÷ operating income: efficiency (lower is better)</td></tr>
+<tr><td>NPL ratio &amp; coverage</td><td>Non-performing loans ÷ gross loans; loan-loss reserves ÷ NPLs</td></tr>
+<tr><td>Cost of credit</td><td>Provision expense ÷ average loans</td></tr>
+<tr><td>Loan-to-deposit ratio (LDR)</td><td>Loans ÷ deposits: funding and liquidity position</td></tr>
+<tr><td>CET1 ratio</td><td>Common equity tier 1 capital ÷ risk-weighted assets: solvency buffer</td></tr>
+<tr><td>ROA / ROE</td><td>Profitability on assets / on equity</td></tr>
+</table></div>
+<h3>P/BV and ROE</h3>
+<div class="formula">Justified P/BV = (ROE − g) ÷ (COE − g)
+ROE 15%, COE 10%, g 5% → (15 − 5) ÷ (10 − 5) = 2.0x</div>
+<p>A bank earning more than its cost of equity should trade above book value. One earning less should trade below it.</p>`},
+{ id:"mkt", title:"Industry & Markets", body:`
+<h3>Market awareness</h3>
+<p>Interviewers ask "what's going on in the markets?" Before every interview, know roughly where these stand <i>today</i> (this page is offline, so check the news):</p>
+<ul><li>Policy rate (Fed / ECB / BoE / your local central bank) and the 10-year government bond yield</li><li>Major equity indices (S&amp;P 500, Dow, Nasdaq, plus your home index)</li><li>Oil, FX for your currency, inflation trend</li><li>2–3 recent large deals and the IPO market</li></ul>
+<h3>Concepts to explain clearly</h3>
+<ul>
+<li><b>Rates up → bond prices down</b> (and vice versa). Longer-duration bonds move more.</li>
+<li><b>Higher rates → lower valuations,</b> especially for long-duration growth companies, because discount rates rise. LBO financing also gets more expensive, which slows M&amp;A.</li>
+<li><b>Inverted yield curve:</b> short-term yields above long-term yields, historically a recession signal.</li>
+<li><b>Buy-side vs sell-side:</b> buy-side invests capital (PE, hedge funds, asset managers). Sell-side advises and distributes (banks, research).</li>
+<li><b>ECM / DCM / LevFin:</b> equity raising (IPOs, follow-ons, converts) / investment-grade debt / high-yield bonds and leveraged loans for LBOs.</li>
+</ul>
+<h3>Talking about a deal (structure)</h3>
+<ol><li>Who bought whom, the price, the multiple (EV/EBITDA) and the premium.</li><li>Strategic rationale and synergies.</li><li>How it was paid for (cash, stock, debt).</li><li>Market reaction for both share prices.</li><li><b>Your view</b> and the risks (regulatory, integration).</li></ol>
+<h3>Pitching a stock</h3>
+<p>Thesis (2–3 reasons) → catalysts → valuation vs peers → risks and what would change your mind. Keep it under 2 minutes.</p>`},
+{ id:"beh", title:"Behavioral / Fit", body:`
+<p>Fit questions decide most superdays. Technicals get you through; fit gets you the offer.</p>
+<h3>"Walk me through your resume" (about 2 minutes)</h3>
+<ol><li><b>Beginning:</b> where you're from, what got you interested in business.</li><li><b>Middle:</b> 2–3 experiences, each with a key takeaway that pointed you toward finance.</li><li><b>Why now:</b> why IB is the logical next step, and why this firm.</li></ol>
+<p>Tell it as a story, not a list. Practice it out loud until it sounds natural.</p>
+<h3>"Why investment banking?"</h3>
+<ul><li>A steep learning curve in finance, modeling and how businesses work.</li><li>Exposure to big, real deals and senior decision-makers.</li><li>Working in teams with strong people under real stakes.</li><li>Tie each point to something you've actually done. Avoid leading with money or exit opportunities.</li></ul>
+<h3>"Why our firm / group?"</h3>
+<p>Name specific people you spoke with, deals the group did, the culture, and the size of analyst teams. Generic answers stand out for the wrong reason.</p>
+<h3>STAR stories: prepare 5–6</h3>
+<p><b>S</b>ituation → <b>T</b>ask → <b>A</b>ction (most of the answer, and "I", not "we") → <b>R</b>esult (quantified, plus what you learned). Cover: leadership, teamwork, conflict, failure, a tight deadline, attention to detail, an ethical dilemma.</p>
+<h3>Strengths &amp; weaknesses</h3>
+<ul><li><b>Strength:</b> relevant to banking (work ethic, attention to detail, learning fast), with proof.</li><li><b>Weakness:</b> real but not fatal, plus concrete steps you're taking. Avoid "I'm a perfectionist" and "I work too hard".</li></ul>
+<h3>Questions to ask them</h3>
+<ul><li>What separates top analysts in their first year?</li><li>A deal you enjoyed working on, and why?</li><li>How is work staffed in the group?</li><li>How has the group's deal flow changed this year?</li></ul>`},
+{ id:"excel", title:"Excel & Modeling", topic:null, body:`
+<p>Many superdays and most PE interviews include a modeling test. Build these from a blank sheet at least once: a <b>three-statement model</b>, a <b>DCF</b>, a <b>simple LBO</b>.</p>
+<h3>Build order for a three-statement model</h3>
+<ol><li>Historicals and assumptions (growth, margins, days, CapEx %)</li><li>Income statement down to EBIT</li><li>Supporting schedules: working capital, PP&amp;E (CapEx and depreciation), debt and interest</li><li>Finish the IS (interest, taxes, NI) → balance sheet → cash flow statement</li><li>Link cash and the revolver, add a balance check, and a circularity switch for average-balance interest</li></ol>
+<h3>Formatting conventions</h3>
+<ul><li><span style="color:#2563eb;font-weight:700">Blue</span> = hard-coded inputs, <b>black</b> = formulas, <span style="color:#16a34a;font-weight:700">green</span> = links to other sheets</li><li>No hard-codes inside formulas. One row, one formula across.</li><li>Label units (USD m, x, %). Keep periods in the same columns on every sheet.</li></ul>
+<h3>Shortcuts worth knowing (Windows)</h3>
+<div class="tablewrap"><table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td class="mono">Ctrl + Arrow</td><td>Jump to the edge of a data region</td></tr>
+<tr><td class="mono">Ctrl + Shift + Arrow</td><td>Select to the edge</td></tr>
+<tr><td class="mono">F2</td><td>Edit cell</td></tr>
+<tr><td class="mono">F4</td><td>Cycle absolute/relative references (or repeat last action)</td></tr>
+<tr><td class="mono">Ctrl + [</td><td>Jump to precedents</td></tr>
+<tr><td class="mono">Ctrl + Alt + V</td><td>Paste special</td></tr>
+<tr><td class="mono">Ctrl + R / Ctrl + D</td><td>Fill right / fill down</td></tr>
+<tr><td class="mono">Alt + =</td><td>AutoSum</td></tr>
+<tr><td class="mono">Ctrl + 1</td><td>Format cells</td></tr>
+<tr><td class="mono">Alt + W, F, F</td><td>Freeze panes</td></tr>
+</table></div>
+<h3>Functions to know</h3>
+<p><code>INDEX/MATCH</code>, <code>XLOOKUP</code>, <code>SUMIFS</code>, <code>IFERROR</code>, <code>EOMONTH</code>, <code>CHOOSE</code> (scenario switches), <code>MIN/MAX</code> (revolver and debt sweeps), <code>IRR/XIRR</code>, data tables for sensitivities, Goal Seek.</p>`}
+];
+
+/* ---------------- flashcards ---------------- */
+const CARDS = [
+// Accounting
+{t:"acc",q:"Walk me through the three financial statements.",a:"<b>Income statement:</b> revenue − expenses → net income over a period.<br><b>Balance sheet:</b> assets = liabilities + equity at a point in time.<br><b>Cash flow statement:</b> starts with net income, adjusts for non-cash items and working capital (CFO), then investing (CFI) and financing (CFF) → net change in cash."},
+{t:"acc",q:"How do the three statements link together?",a:"NI → top of the CFS and → retained earnings. Non-cash items are added back on the CFS. Changes in operating assets/liabilities → CFO. CapEx → PP&E. Debt/equity flows → CFF and the BS. Ending CFS cash = BS cash."},
+{t:"acc",q:"Depreciation goes up by $10. Walk it through the statements (25% tax).",a:"<b>IS:</b> pre-tax income −10, NI −7.5.<br><b>CFS:</b> NI −7.5, add back D&A +10 → cash +2.5.<br><b>BS:</b> cash +2.5, PP&E −10 → assets −7.5; retained earnings −7.5. Balances."},
+{t:"acc",q:"Inventory goes up by $10, paid in cash. What happens?",a:"<b>IS:</b> nothing.<br><b>CFS:</b> increase in inventory −10 in CFO → cash −10.<br><b>BS:</b> inventory +10, cash −10. Total assets unchanged."},
+{t:"acc",q:"Inventory of $10 is written down (25% tax). Walk it through.",a:"<b>IS:</b> pre-tax −10, NI −7.5.<br><b>CFS:</b> NI −7.5, add back the non-cash write-down +10 → cash +2.5.<br><b>BS:</b> cash +2.5, inventory −10 → assets −7.5; RE −7.5."},
+{t:"acc",q:"A company makes a $10 sale on credit (25% tax, taxes paid in cash).",a:"<b>IS:</b> revenue +10, NI +7.5.<br><b>CFS:</b> NI +7.5, AR increase −10 → cash −2.5.<br><b>BS:</b> AR +10, cash −2.5 → assets +7.5; RE +7.5."},
+{t:"acc",q:"$10 of stock-based compensation (25% tax). Walk it through.",a:"<b>IS:</b> expense +10, NI −7.5.<br><b>CFS:</b> NI −7.5, add back SBC +10 → cash +2.5.<br><b>BS:</b> cash +2.5. Equity: RE −7.5, common stock/APIC +10 → +2.5."},
+{t:"acc",q:"A company borrows $100 to buy $100 of PP&E. What happens on day one?",a:"<b>IS:</b> nothing yet.<br><b>CFS:</b> CapEx −100 (CFI), debt issued +100 (CFF) → net cash 0.<br><b>BS:</b> PP&E +100, debt +100."},
+{t:"acc",q:"A customer prepays $100 for next year's service. What gets recorded?",a:"Cash +100 and a <b>deferred revenue</b> liability +100. On the CFS the increase in deferred revenue is +100 in CFO. Revenue is recognized when the service is delivered."},
+{t:"acc",q:"A $10 dividend is paid. Which statements change?",a:"Not the IS. <b>CFS:</b> −10 in CFF. <b>BS:</b> cash −10, retained earnings −10."},
+{t:"acc",q:"With only two statements, could you build the third?",a:"Yes: with the <b>income statement plus beginning and ending balance sheets</b> you can reconstruct the cash flow statement."},
+{t:"acc",q:"What is working capital and why does it matter in models?",a:"Current assets − current liabilities. Models use <b>operating NWC</b>: (AR + inventory + prepaids) − (AP + accrued + deferred revenue). An increase in NWC <b>uses cash</b>; a decrease releases cash."},
+{t:"acc",q:"Can a company have positive EBITDA and still go bankrupt?",a:"Yes. EBITDA ignores CapEx, working capital, interest and debt maturities. If cash can't cover interest, principal or refinancing, the company can default."},
+{t:"acc",q:"What is goodwill and how is it created?",a:"The purchase price paid above the fair value of the target's net identifiable assets. Created only in acquisitions. Not amortized (US GAAP/IFRS public companies) but tested for <b>impairment</b>."},
+{t:"acc",q:"LIFO vs FIFO when prices are rising?",a:"<b>LIFO:</b> higher COGS → lower NI and taxes, lower inventory on the BS. <b>FIFO:</b> the opposite. IFRS doesn't allow LIFO."},
+{t:"acc",q:"What creates a deferred tax liability?",a:"Book taxes higher than cash taxes now, so more tax is owed later. Classic cause: accelerated depreciation for tax vs straight-line for book. (NOLs create deferred tax <i>assets</i>.)"},
+{t:"acc",q:"Why add back depreciation on the cash flow statement?",a:"It's a non-cash expense that lowered net income. The actual cash went out earlier, as CapEx."},
+{t:"acc",q:"When do you capitalize a cost instead of expensing it?",a:"Capitalize when it benefits more than one year (e.g., PP&E), then depreciate or amortize it. Expense it when it's used up in the current period."},
+// EV
+{t:"ev",q:"Equity value vs enterprise value?",a:"<b>Equity value:</b> value to common shareholders (diluted shares × price).<br><b>EV:</b> value of the core operations to all capital providers = equity value + debt + preferred + NCI − cash."},
+{t:"ev",q:"Why subtract cash when calculating EV?",a:"Cash is a non-operating asset. EV measures core operations, and a buyer effectively gets the cash back (or uses it to pay down debt)."},
+{t:"ev",q:"Why add noncontrolling interest to EV?",a:"A parent that owns more than 50% consolidates <b>100%</b> of the subsidiary's EBITDA. Adding NCI makes the numerator cover the same 100%."},
+{t:"ev",q:"Treasury stock method: 100 shares at $20, 10 options at a $10 strike. Diluted shares?",a:"Proceeds 10 × $10 = $100 → buyback $100 ÷ $20 = 5 shares. Net new = 5. <b>Diluted = 105.</b>"},
+{t:"ev",q:"Company raises $100 of debt and holds it as cash. Effect on EV and equity value?",a:"<b>Neither changes.</b> Debt +100 and cash +100 cancel out in EV, and shareholders are no richer or poorer."},
+{t:"ev",q:"Company issues $100 of new shares. Effect on EV and equity value?",a:"Equity value <b>+100</b>; cash +100 offsets it, so EV is <b>unchanged</b>."},
+{t:"ev",q:"Company spends $100 of cash on new equipment. Effect on EV?",a:"EV <b>+100</b>. Equity value is unchanged, but cash (subtracted in EV) fell, because a non-operating asset became an operating one."},
+{t:"ev",q:"Can enterprise value be negative?",a:"Yes, if cash is larger than equity value + debt + other claims (e.g., cash-rich, distressed or out-of-favor companies). Equity value can't be negative."},
+{t:"ev",q:"Which multiples use EV and which use equity value?",a:"<b>EV:</b> EV/Revenue, EV/EBITDA, EV/EBIT (metrics before interest).<br><b>Equity:</b> P/E, P/BV, P/TBV (metrics after interest). Match the numerator to the metric's investors."},
+{t:"ev",q:"How do you treat convertible bonds in diluted shares?",a:"In the money (share price above the conversion price): count the conversion shares and remove the bond from debt. Out of the money: leave it as debt."},
+{t:"ev",q:"Why is EV/EBITDA often preferred over P/E?",a:"It doesn't depend on capital structure (before interest), excludes non-cash D&A and differences in tax rates, so it compares companies with different leverage more cleanly."},
+// Valuation
+{t:"val",q:"What are the main valuation methods?",a:"Trading comps, precedent transactions, DCF. Also: LBO analysis, sum-of-the-parts, liquidation value, and DDM or P/BV for financial institutions."},
+{t:"val",q:"Which method usually gives the highest value, and why?",a:"<b>Precedent transactions</b>: they include a control premium (often 20–40%) and expected synergies. A DCF can be higher or lower depending on assumptions."},
+{t:"val",q:"How do you choose comparable companies?",a:"Industry, business model, size (revenue/market cap), geography, growth and margin profile. Then narrow down to the closest peers."},
+{t:"val",q:"What is a football field chart?",a:"A chart showing valuation ranges from each method (comps, precedents, DCF, LBO, 52-week range) side by side, used to frame the offer price."},
+{t:"val",q:"Two companies are identical except A grows faster. Which has the higher multiple?",a:"A. Faster expected growth (at similar risk and returns) justifies a higher multiple."},
+{t:"val",q:"Why might a company trade at a premium to peers?",a:"Higher growth, better margins or ROIC, lower risk, recurring revenue, market leadership, or M&A speculation."},
+{t:"val",q:"When is a DCF not appropriate?",a:"When cash flows are highly unpredictable or negative (early-stage companies), and for banks and insurers, where debt is operating. Use P/BV, P/E and DDM for those."},
+{t:"val",q:"What role does an LBO analysis play in valuation?",a:"It shows what a financial sponsor could pay and still hit its target IRR. That often acts as a <b>floor</b> for the valuation."},
+// DCF
+{t:"dcf",q:"Walk me through a DCF.",a:"Project UFCF for 5–10 years → terminal value (Gordon growth or exit multiple) → discount everything at WACC → EV → subtract net debt and other claims → equity value → ÷ diluted shares = implied share price."},
+{t:"dcf",q:"Formula for unlevered free cash flow?",a:"<code>EBIT × (1 − t) + D&A − CapEx − increase in NWC</code>"},
+{t:"dcf",q:"Formula for WACC?",a:"<code>E/(D+E) × Re + D/(D+E) × Rd × (1 − t)</code> (plus a preferred stock term if relevant)."},
+{t:"dcf",q:"How do you calculate the cost of equity?",a:"CAPM: <code>Re = Rf + β × equity risk premium</code>. Sometimes a size or country risk premium is added."},
+{t:"dcf",q:"Why unlever and relever beta?",a:"Peer betas include each peer's own leverage. Unlever them (<code>βu = βL ÷ [1 + (1−t)D/E]</code>), take the median, then relever at the target's capital structure."},
+{t:"dcf",q:"Two ways to calculate terminal value?",a:"<b>Gordon growth:</b> FCFn × (1+g) ÷ (WACC − g).<br><b>Exit multiple:</b> final-year EBITDA × multiple. Cross-check each against the other."},
+{t:"dcf",q:"Which matters more: a 1% change in revenue or in the discount rate?",a:"Usually the <b>discount rate</b>. It affects every year's cash flow and especially the terminal value, which is often 60–80% of EV."},
+{t:"dcf",q:"Why is the cost of equity higher than the cost of debt?",a:"Equity is paid last and has no promised returns (more risk), and interest on debt is tax-deductible."},
+{t:"dcf",q:"How does adding debt affect WACC?",a:"Moderate debt usually <b>lowers</b> WACC (cheaper, tax-deductible). Past a point, the risk of financial distress raises both Rd and Re, and WACC goes up."},
+{t:"dcf",q:"What does the mid-year convention do?",a:"Assumes cash flows arrive evenly through the year, discounting by (n − 0.5). This <b>raises</b> valuation slightly."},
+{t:"dcf",q:"Levered vs unlevered DCF?",a:"Unlevered: UFCF at WACC → enterprise value. Levered: LFCF (after interest and debt repayment) at the <b>cost of equity</b> → equity value directly."},
+{t:"dcf",q:"What's a reasonable perpetual growth rate?",a:"At or below long-term nominal GDP growth (often 2–3% in developed markets). A company can't outgrow the economy forever."},
+// M&A
+{t:"ma",q:"Why would a company acquire another?",a:"Growth (products, customers, geographies), synergies, market share, technology or talent, vertical integration, or because the target is undervalued."},
+{t:"ma",q:"Walk me through a merger model.",a:"Project both companies → set price and funding (cash/debt/stock) → purchase price allocation → combine IS, adjusting for synergies, forgone interest, new interest and new D&A → pro-forma EPS vs acquirer standalone EPS → accretion/dilution."},
+{t:"ma",q:"All-stock deal: when is it accretive (no synergies)?",a:"When the acquirer's P/E is <b>higher</b> than the target's P/E at the purchase price."},
+{t:"ma",q:"General accretion/dilution rule for mixed funding?",a:"Compare the weighted after-tax cost of funding with the target's earnings yield (1 ÷ purchase P/E). Cash = forgone interest × (1−t); debt = rate × (1−t); stock = 1 ÷ acquirer P/E. Lower cost → accretive."},
+{t:"ma",q:"How is goodwill calculated in a deal?",a:"Equity purchase price − (target book value + asset write-ups − new DTL). For example, 1,000 − (600 + 100) = 300 of goodwill."},
+{t:"ma",q:"Why pay with stock instead of cash?",a:"The acquirer's shares are richly valued, it lacks cash or debt capacity, it wants the seller to share the risk, or the deal is a merger of equals."},
+{t:"ma",q:"Revenue synergies vs cost synergies?",a:"Revenue: cross-selling, pricing, distribution. Cost: removing overlapping staff, offices and procurement. Cost synergies are easier to achieve and more trusted."},
+{t:"ma",q:"What are the stages of a sell-side M&A process?",a:"Prep (CIM, model, buyer list) → Round 1 (teaser, NDA, CIM, IOIs) → Round 2 (management presentations, data room, LOIs) → negotiate the purchase agreement and sign → approvals → close."},
+{t:"ma",q:"What is a fairness opinion?",a:"A bank's letter to the board saying the deal price is fair to shareholders from a financial point of view, supported by valuation analysis."},
+{t:"ma",q:"What is a break fee?",a:"A fee the target pays the buyer if it walks away (e.g., takes a superior offer). A reverse break fee is paid by the buyer (e.g., financing or regulatory failure)."},
+// LBO
+{t:"lbo",q:"Walk me through an LBO.",a:"Set the purchase price → sources & uses (debt + sponsor equity) → project cash flows and pay down debt → exit at an EBITDA multiple after 3–7 years → exit equity = exit EV − net debt → MOIC and IRR."},
+{t:"lbo",q:"What makes a good LBO candidate?",a:"Stable cash flow, low CapEx and working capital needs, strong market position, room for cost savings, little existing debt, good management, a clear exit path."},
+{t:"lbo",q:"What are the main drivers of LBO returns?",a:"1) EBITDA growth, 2) debt paydown (deleveraging), 3) multiple expansion."},
+{t:"lbo",q:"IRR of 2x in 5 years? 2x in 3? 3x in 5? 3x in 3?",a:"About <b>15%</b>, <b>26%</b>, <b>25%</b>, <b>44%</b>."},
+{t:"lbo",q:"Paper LBO: buy 100 EBITDA at 10x with 60% debt. Exit in year 5 at 10x on 130 EBITDA with 300 of debt left. Returns?",a:"Equity in 400. Exit EV 1,300 − 300 debt = 1,000. MOIC 2.5x → IRR ≈ <b>20%</b>."},
+{t:"lbo",q:"Why does leverage increase returns?",a:"The sponsor puts up less equity but keeps all the upside after a fixed interest cost, and interest is tax-deductible. The trade-off is more default risk."},
+{t:"lbo",q:"Typical debt stack, most senior first?",a:"Revolver / term loans (secured, floating) → senior notes / high-yield bonds → subordinated / mezzanine / PIK."},
+{t:"lbo",q:"Maintenance vs incurrence covenants?",a:"<b>Maintenance:</b> tested regularly (e.g., leverage below 5.0x every quarter), typical of bank loans. <b>Incurrence:</b> tested only when the company acts (borrows more, pays dividends), typical of bonds."},
+{t:"lbo",q:"What is a dividend recap?",a:"The company raises new debt to pay a dividend to its PE owner. This returns capital early and boosts IRR."},
+{t:"lbo",q:"How can a PE firm exit an investment?",a:"Sale to a strategic buyer, sale to another sponsor (secondary buyout), IPO, or dividend recaps along the way."},
+// FIG
+{t:"fig",q:"Why don't we use EV/EBITDA for banks?",a:"Debt and deposits are a bank's raw material, and interest is an operating cost. Operations can't be separated from financing, so use equity value metrics: P/E, P/BV, P/TBV, DDM."},
+{t:"fig",q:"What is net interest margin (NIM)?",a:"Net interest income ÷ average interest-earning assets: the bank's core lending spread."},
+{t:"fig",q:"What does the CET1 ratio measure?",a:"Common equity tier 1 capital ÷ risk-weighted assets: the bank's highest-quality loss-absorbing capital buffer."},
+{t:"fig",q:"Justified P/BV formula, and an example with ROE 15%, COE 10%, g 5%?",a:"<code>(ROE − g) ÷ (COE − g)</code> = (15 − 5) ÷ (10 − 5) = <b>2.0x</b>."},
+{t:"fig",q:"What is the cost-to-income ratio?",a:"Operating expenses ÷ operating income. Lower means a more efficient bank."},
+{t:"fig",q:"What does the loan-to-deposit ratio tell you?",a:"How much of the deposit base is lent out. Very high means funding or liquidity pressure; very low means under-used deposits."},
+// Markets
+{t:"mkt",q:"What happens to bond prices when interest rates rise?",a:"They <b>fall</b>. Longer-duration bonds fall more."},
+{t:"mkt",q:"How do higher interest rates affect valuations and M&A?",a:"Higher discount rates lower valuations, especially for long-duration growth companies. LBO financing gets more expensive, which usually slows M&A activity."},
+{t:"mkt",q:"What does an inverted yield curve mean?",a:"Short-term yields are above long-term yields. Historically a signal of expected slowdown or recession."},
+{t:"mkt",q:"Coverage groups vs product groups?",a:"Coverage = industry relationships (TMT, Healthcare, FIG…). Product = execution expertise (M&A, ECM, DCM, LevFin, Restructuring)."},
+{t:"mkt",q:"Bulge bracket vs elite boutique vs middle market?",a:"BB: global full-service banks with balance sheets. EB: advisory-only firms on big M&A. MM: smaller deals, often private companies and sponsors."},
+{t:"mkt",q:"How do you talk about a recent deal?",a:"Parties, price/multiple/premium → strategic rationale → funding → market reaction → your view and the risks."},
+// Behavioral
+{t:"beh",q:"How should you structure \"walk me through your resume\"?",a:"About 2 minutes as a story: background → 2–3 experiences each with a takeaway → why IB now → why this firm."},
+{t:"beh",q:"What's a strong \"Why investment banking?\" answer built on?",a:"The learning curve, exposure to big deals and senior people, and teamwork under real stakes, each tied to your own experiences. Don't lead with pay."},
+{t:"beh",q:"What does STAR stand for?",a:"<b>S</b>ituation, <b>T</b>ask, <b>A</b>ction, <b>R</b>esult. Spend most of the time on Action ('I', not 'we') and quantify the Result."},
+{t:"beh",q:"How do you answer the weakness question?",a:"A real but non-fatal weakness, a concrete example, and what you're doing to improve. Avoid clichés like 'perfectionist'."},
+{t:"beh",q:"Which STAR stories should you have ready?",a:"Leadership, teamwork, conflict, failure, tight deadline, attention to detail, ethical dilemma, persuading someone."},
+{t:"beh",q:"Good questions to ask the interviewer?",a:"What separates top first-year analysts? A deal you enjoyed and why? How is staffing done? How has deal flow changed this year?"},
+// Math
+{t:"math",q:"What's the angle between the clock hands at 3:15?",a:"<b>7.5°</b>. The minute hand is at 90°; the hour hand is at 90° + 15 × 0.5° = 97.5°."},
+{t:"math",q:"How many trailing zeros does 100! have?",a:"<b>24</b>: ⌊100/5⌋ + ⌊100/25⌋ = 20 + 4."},
+{t:"math",q:"A bat and ball cost $1.10. The bat costs $1 more than the ball. Price of the ball?",a:"<b>$0.05</b> (ball x, bat x + 1, 2x + 1 = 1.10)."},
+{t:"math",q:"25 horses, 5 lanes, no timer. Minimum races to find the top 3?",a:"<b>7</b>: 5 heats, a race of the 5 winners, then a final race among the 5 remaining candidates."},
+{t:"math",q:"How many times do the clock hands overlap in 24 hours?",a:"<b>22</b> (11 times every 12 hours)."},
+{t:"math",q:"8 identical-looking balls, one heavier. Fewest balance weighings?",a:"<b>2</b>. Weigh 3 vs 3. If balanced, weigh the remaining 2. If not, take the heavy group and weigh 1 vs 1."},
+{t:"math",q:"Rule of 72?",a:"Years to double ≈ 72 ÷ annual rate (%). At 9%, about 8 years."},
+{t:"math",q:"Three switches outside a room, one bulb inside, one visit. How do you find the right switch?",a:"Turn switch 1 on for a few minutes, turn it off, turn switch 2 on, then go in. On = 2; off and warm = 1; off and cold = 3."}
+];
+
+/* ---------------- quiz bank (a = index of correct option) ---------------- */
+const QUIZ = [
+// Accounting
+{t:"acc",q:"Depreciation rises by $10 with a 25% tax rate. What happens to cash?",o:["−$10","−$7.50","+$2.50","No change"],a:2,e:"NI falls 7.5, but the 10 of non-cash D&A is added back: −7.5 + 10 = +2.5 (lower taxes paid)."},
+{t:"acc",q:"Which item is NOT part of cash flow from operations (indirect method)?",o:["D&A add-back","Change in accounts receivable","Capital expenditures","Stock-based compensation add-back"],a:2,e:"CapEx is an investing activity (CFI)."},
+{t:"acc",q:"A company buys $50 of inventory on credit. Net change in cash?",o:["−$50","+$50","$0","−$37.50"],a:2,e:"Inventory +50 (a use of cash) is offset by AP +50 (a source). No cash moves yet."},
+{t:"acc",q:"An increase in accounts receivable on the cash flow statement is…",o:["A source of cash","A use of cash","Not shown","Shown in investing activities"],a:1,e:"Revenue was booked but cash hasn't arrived, so it reduces CFO."},
+{t:"acc",q:"With rising prices, LIFO compared with FIFO gives…",o:["Lower COGS and higher taxes","Higher COGS and lower taxes","Higher inventory on the balance sheet","Identical results"],a:1,e:"LIFO expenses the newest, most expensive inventory first."},
+{t:"acc",q:"$20 of stock-based compensation, 25% tax. Change in cash?",o:["−$15","+$5","+$20","$0"],a:1,e:"NI −15, add back non-cash SBC +20 → +5."},
+{t:"acc",q:"A $10 dividend affects which statements?",o:["All three","Income statement and balance sheet","Cash flow statement and balance sheet","Income statement only"],a:2,e:"Dividends aren't an expense. CFF −10, cash −10, retained earnings −10."},
+{t:"acc",q:"A customer pays upfront for a service delivered next year. What liability is recorded?",o:["Accounts payable","Deferred revenue","Accrued expenses","Deferred tax liability"],a:1,e:"Cash received before revenue is earned is deferred (unearned) revenue."},
+{t:"acc",q:"$10 asset write-down, 25% tax. Effect on shareholders' equity?",o:["−$10","−$7.50","+$2.50","No change"],a:1,e:"Net income falls 7.5, which flows into retained earnings."},
+{t:"acc",q:"Goodwill is created when…",o:["A company's share price rises","The purchase price exceeds the fair value of net identifiable assets","A company capitalizes R&D","Assets are revalued upward each year"],a:1,e:"Goodwill only comes from acquisitions."},
+// EV
+{t:"ev",q:"Equity value 500, debt 200, cash 50, preferred 30, NCI 20. Enterprise value?",o:["650","700","750","800"],a:1,e:"500 + 200 + 30 + 20 − 50 = 700."},
+{t:"ev",q:"100 basic shares at $20; 10 options with a $10 strike. Diluted shares (TSM)?",o:["100","105","110","95"],a:1,e:"Proceeds $100 buy back 5 shares; 10 − 5 = 5 net new."},
+{t:"ev",q:"A company raises $100 of debt and keeps it as cash. Change in EV?",o:["+100","−100","No change","+200"],a:2,e:"Debt +100 and cash +100 offset."},
+{t:"ev",q:"Which multiple uses equity value in the numerator?",o:["EV/EBITDA","EV/Revenue","P/E","EV/EBIT"],a:2,e:"Net income is after interest, so it belongs to equity holders."},
+{t:"ev",q:"Why is noncontrolling interest added in the EV bridge?",o:["It's a type of debt","EBITDA includes 100% of majority-owned subsidiaries","It's cash-like","Accounting standards require it for P/E"],a:1,e:"It keeps the numerator consistent with consolidated metrics."},
+{t:"ev",q:"A company spends $100 of cash on PP&E. What happens to EV?",o:["Falls by 100","No change","Rises by 100","Depends on the tax rate"],a:2,e:"Equity value is unchanged, but cash (subtracted in EV) fell by 100."},
+{t:"ev",q:"Can enterprise value be negative?",o:["Never","Yes, if cash exceeds equity value plus debt and other claims","Only for private companies","Only under IFRS"],a:1,e:"Net cash larger than the market value of the claims gives a negative EV."},
+{t:"ev",q:"An in-the-money convertible bond should be…",o:["Counted as debt only","Counted as diluted shares and removed from debt","Ignored","Added to cash"],a:1,e:"Assume conversion when it's in the money."},
+// Valuation
+{t:"val",q:"Which method typically gives the highest valuation?",o:["Trading comps","Precedent transactions","LBO analysis","52-week trading range"],a:1,e:"Precedents include a control premium and synergies."},
+{t:"val",q:"In valuation, an LBO analysis often represents…",o:["The ceiling","A floor based on a sponsor's required return","Intrinsic value","Book value"],a:1,e:"Sponsors without synergies need a minimum IRR, which caps what they'd pay."},
+{t:"val",q:"Which is NOT a typical criterion for choosing comps?",o:["Industry","Size","Growth and margins","The CEO's age"],a:3,e:"Pick on business fundamentals."},
+{t:"val",q:"Companies A and B are identical except A grows faster. Expect A's EV/EBITDA to be…",o:["Lower","Higher","The same","Negative"],a:1,e:"Higher growth at similar risk justifies a higher multiple."},
+{t:"val",q:"A football field chart is used to…",o:["Track deal timelines","Compare valuation ranges across methods","Show the org chart","Model debt paydown"],a:1,e:"It's the summary valuation page."},
+{t:"val",q:"Which type of company is least suited to a standard unlevered DCF?",o:["A mature consumer goods company","A commercial bank","A utility","An industrial manufacturer"],a:1,e:"For banks, debt is operating. Use DDM, P/BV and P/E."},
+// DCF
+{t:"dcf",q:"Which is the correct unlevered FCF formula?",o:["Net income + D&A − CapEx","EBIT × (1−t) + D&A − CapEx − ΔNWC","EBITDA − interest − taxes","Revenue − COGS − CapEx"],a:1,e:"Start from after-tax operating profit, before interest."},
+{t:"dcf",q:"Rf = 4%, β = 1.2, ERP = 5%. Cost of equity?",o:["9%","10%","11%","6%"],a:1,e:"4% + 1.2 × 5% = 10%."},
+{t:"dcf",q:"60% equity at 10%, 40% debt at 5% pre-tax, 25% tax. WACC?",o:["7.5%","8.0%","7.0%","8.5%"],a:0,e:"0.6 × 10% + 0.4 × 5% × 0.75 = 6% + 1.5% = 7.5%."},
+{t:"dcf",q:"Next year's FCF is 105, WACC 9%, g 2%. Gordon growth terminal value?",o:["1,167","1,312","1,500","5,250"],a:2,e:"105 ÷ (9% − 2%) = 1,500."},
+{t:"dcf",q:"Which usually has the bigger impact on a DCF?",o:["1% change in revenue","1% change in the discount rate","1% change in the tax rate","1% change in D&A"],a:1,e:"The discount rate hits every cash flow and the terminal value."},
+{t:"dcf",q:"Levered beta 1.5, D/E 0.5, tax 20%. Unlevered beta?",o:["≈1.07","≈1.25","1.50","≈0.94"],a:0,e:"1.5 ÷ [1 + 0.8 × 0.5] = 1.5 ÷ 1.4 ≈ 1.07."},
+{t:"dcf",q:"Using the mid-year convention instead of end-of-year discounting…",o:["Lowers value","Raises value","No effect","Only changes terminal value"],a:1,e:"Cash flows are discounted half a year less."},
+{t:"dcf",q:"Levered free cash flow should be discounted at…",o:["WACC","Cost of debt","Cost of equity","Risk-free rate"],a:2,e:"LFCF belongs to equity holders only."},
+{t:"dcf",q:"Adding moderate debt to an all-equity company typically…",o:["Raises WACC","Lowers WACC","Doesn't change WACC","Makes WACC negative"],a:1,e:"Debt is cheaper and tax-deductible, up to the point where distress risk rises."},
+{t:"dcf",q:"A reasonable perpetual growth rate for a mature company in a developed market?",o:["8–10%","2–3%","15%","Equal to WACC"],a:1,e:"It shouldn't exceed long-term nominal GDP growth, and g = WACC would mean infinite value."},
+// M&A
+{t:"ma",q:"All-stock deal: acquirer P/E 20x, target bought at 12x P/E, no synergies. Result?",o:["Accretive","Dilutive","Neutral","Can't tell"],a:0,e:"The acquirer's cost of stock is 5% (1/20) vs the target's earnings yield of 8.3% (1/12)."},
+{t:"ma",q:"Interest earned on cash is 4% and the tax rate is 25%. After-tax cost of using cash?",o:["4%","3%","1%","5.3%"],a:1,e:"4% × (1 − 25%) = 3%."},
+{t:"ma",q:"Debt at 8% pre-tax, 25% tax; target bought at 10x P/E. Debt-funded deal is…",o:["Accretive","Dilutive","Neutral","Depends on the acquirer's P/E"],a:0,e:"After-tax cost 6% < target earnings yield 10%."},
+{t:"ma",q:"Price 1,000; target book value 600; asset write-ups 100 (ignore DTL). Goodwill?",o:["400","300","100","700"],a:1,e:"1,000 − (600 + 100) = 300."},
+{t:"ma",q:"Which is a cost synergy?",o:["Cross-selling products","Closing an overlapping headquarters","Raising prices","Entering a new country"],a:1,e:"Removing duplicated costs."},
+{t:"ma",q:"First-round bids in an auction are usually…",o:["Binding LOIs","Non-binding indications of interest","Signed purchase agreements","Fairness opinions"],a:1,e:"IOIs, followed by LOIs in round 2."},
+{t:"ma",q:"An acquirer would most prefer to pay in stock when…",o:["Its shares look undervalued","Its shares look richly valued","Interest rates are very low","It has a lot of excess cash"],a:1,e:"Highly valued stock is cheap currency."},
+{t:"ma",q:"A break fee is typically paid by the target when…",o:["The deal closes","It accepts a superior competing offer","Interest rates rise","The buyer fails to raise financing"],a:1,e:"Buyer-side failures trigger a reverse break fee."},
+// LBO
+{t:"lbo",q:"2x MOIC over 5 years is an IRR of about…",o:["10%","15%","20%","26%"],a:1,e:"2^(1/5) ≈ 1.149."},
+{t:"lbo",q:"3x MOIC over 3 years is an IRR of about…",o:["25%","33%","44%","60%"],a:2,e:"3^(1/3) ≈ 1.442."},
+{t:"lbo",q:"Which is NOT a feature of an ideal LBO target?",o:["Stable cash flow","Low CapEx needs","High, unpredictable CapEx","Strong market position"],a:2,e:"Unpredictable cash needs make it hard to service debt."},
+{t:"lbo",q:"Which is NOT a core LBO return driver?",o:["EBITDA growth","Debt paydown","Multiple expansion","Higher interest rates"],a:3,e:"Higher rates raise financing costs and hurt returns."},
+{t:"lbo",q:"Buy 100 EBITDA at 10x with 600 debt. Exit year 5: 130 EBITDA at 10x, 300 debt left. IRR?",o:["~15%","~20%","~25%","~30%"],a:1,e:"Equity 400 → 1,000 = 2.5x over 5 years ≈ 20%."},
+{t:"lbo",q:"Which tranche is usually most senior?",o:["Mezzanine","High-yield bonds","Revolver / term loans","PIK notes"],a:2,e:"Secured bank debt ranks first."},
+{t:"lbo",q:"A maintenance covenant is…",o:["Tested only when new debt is issued","Tested regularly, e.g., every quarter","A requirement to maintain PP&E","Only found in bonds"],a:1,e:"Typical of bank loans. Incurrence covenants are tested only on an action."},
+{t:"lbo",q:"In a dividend recap, the company…",o:["Issues equity to pay down debt","Borrows new debt to pay a dividend to the sponsor","Stops paying dividends","Converts debt into equity"],a:1,e:"It returns cash to the sponsor early and lifts IRR."},
+// FIG
+{t:"fig",q:"Why are EV-based multiples rarely used for banks?",o:["Banks don't report EBITDA because it's illegal","Debt is part of operations, so financing can't be separated","Banks have no equity","EV is always negative for banks"],a:1,e:"Use P/E, P/BV, P/TBV and DDM."},
+{t:"fig",q:"Net interest margin is…",o:["Net income ÷ revenue","Net interest income ÷ average earning assets","Loans ÷ deposits","Opex ÷ operating income"],a:1,e:"The bank's core spread."},
+{t:"fig",q:"ROE 15%, cost of equity 10%, g 5%. Justified P/BV?",o:["1.0x","1.5x","2.0x","3.0x"],a:2,e:"(15 − 5) ÷ (10 − 5) = 2.0x."},
+{t:"fig",q:"CET1 ratio is…",o:["Loans ÷ deposits","Common equity tier 1 ÷ risk-weighted assets","NPLs ÷ total loans","Net income ÷ equity"],a:1,e:"The core capital adequacy measure."},
+{t:"fig",q:"A lower cost-to-income ratio means…",o:["Less efficient","More efficient","Higher credit risk","Higher capital"],a:1,e:"Less cost per unit of income."},
+// Markets
+{t:"mkt",q:"When interest rates rise, existing bond prices…",o:["Rise","Fall","Stay the same","Go to par"],a:1,e:"Prices and yields move in opposite directions."},
+{t:"mkt",q:"Which is an elite boutique?",o:["Citi","Evercore","Wells Fargo","HSBC"],a:1,e:"Advisory-focused, strong in large M&A."},
+{t:"mkt",q:"Which is a product group?",o:["TMT","Healthcare","Leveraged Finance","Consumer & Retail"],a:2,e:"The others are industry coverage groups."},
+{t:"mkt",q:"Which is the usual banking hierarchy, junior to senior?",o:["Associate → Analyst → VP → MD","Analyst → Associate → VP → Director → MD","Analyst → VP → Associate → MD","Analyst → Director → VP → MD"],a:1,e:"Titles vary a little by bank (e.g., SVP instead of Director)."},
+{t:"mkt",q:"An inverted yield curve means…",o:["Long-term yields above short-term","Short-term yields above long-term","All yields are negative","Yields are flat at zero"],a:1,e:"Historically a recession signal."},
+// Behavioral
+{t:"beh",q:"STAR stands for…",o:["Strategy, Tactic, Action, Review","Situation, Task, Action, Result","Story, Theme, Answer, Reflection","Strength, Talent, Ability, Result"],a:1,e:"Spend most of your time on the Action."},
+{t:"beh",q:"Best approach to \"walk me through your resume\"?",o:["Read every line in order","A ~2-minute story ending with why IB and why now","A 10-minute detailed history","Start with your weaknesses"],a:1,e:"Concise, story-driven, ending with why you're in this room."},
+{t:"beh",q:"Best approach to the weakness question?",o:["\"I'm a perfectionist\"","Say you have none","A real, non-fatal weakness with concrete steps to improve","A weakness that's critical for the job"],a:2,e:"Shows self-awareness and growth."},
+// Math
+{t:"math",q:"Angle between the clock hands at 3:15?",o:["0°","7.5°","15°","22.5°"],a:1,e:"The hour hand moves 0.5° per minute: 97.5° vs 90°."},
+{t:"math",q:"Trailing zeros in 100!?",o:["20","24","25","10"],a:1,e:"20 + 4 (from multiples of 25)."},
+{t:"math",q:"Bat and ball cost $1.10; the bat is $1 more than the ball. The ball costs…",o:["$0.10","$0.05","$0.01","$0.15"],a:1,e:"2x + 1 = 1.10 → x = 0.05."},
+{t:"math",q:"25 horses, 5 lanes, no timer. Minimum races for the top 3?",o:["6","7","8","11"],a:1,e:"5 heats + winners' race + 1 deciding race."},
+{t:"math",q:"How many times do the clock hands overlap in 24 hours?",o:["24","22","23","12"],a:1,e:"11 times every 12 hours."},
+{t:"math",q:"8 balls, one heavier. Fewest weighings on a balance?",o:["1","2","3","4"],a:1,e:"3 vs 3, then 1 vs 1 (or the remaining 2)."},
+{t:"math",q:"15% of 240?",o:["32","36","38","40"],a:1,e:"10% = 24, 5% = 12 → 36."},
+{t:"math",q:"Rule of 72: at 9% a year, money doubles in about…",o:["6 years","8 years","9 years","12 years"],a:1,e:"72 ÷ 9 = 8."}
+];
+
+/* ---------------- checklist ---------------- */
+const CHECKLIST = [
+ {g:"Technicals", items:["Explain the three statements and how they link","Walk any $10 change through all three statements","Bridge equity value to enterprise value","Calculate diluted shares with the treasury stock method","Explain comps, precedents and DCF, and when each is highest","Recite the UFCF, WACC, CAPM and terminal value formulas","Walk through a merger model and the accretion/dilution shortcuts","Do a paper LBO in under 5 minutes","Know the IRR rules of thumb","Score 80%+ on a mixed 20-question quiz"]},
+ {g:"Excel & modeling", items:["Build a three-statement model from scratch","Build a DCF with sensitivity tables","Build a simple LBO with a debt schedule","Use INDEX/MATCH or XLOOKUP, SUMIFS and data tables comfortably","Navigate Excel mostly without the mouse"]},
+ {g:"Story & behavioral", items:["2-minute \"walk me through your resume\"","\"Why IB?\" answer tied to your experiences","\"Why this firm?\" with names and deals","5–6 STAR stories written and rehearsed","Strength and weakness answers","3 thoughtful questions for interviewers"]},
+ {g:"Markets & deals", items:["Know today's policy rate, 10-year yield and major indices","Prepare 2 recent deals (price, multiple, rationale, your view)","Prepare 1 stock pitch with valuation and risks","Read financial news daily for 4+ weeks"]},
+ {g:"Resume & networking", items:["One-page resume with quantified bullets","Resume reviewed by 2+ people in finance","Networking tracker spreadsheet set up","10+ coffee chats completed","Thank-you notes sent within 24 hours"]},
+ {g:"Applications & interviews", items:["Application deadlines calendar built","Practiced 3+ recorded (HireVue-style) answers","Completed 3+ mock interviews","Outfit, logistics and a pre-superday plan ready"]}
+];
+
+/* ---------------- teasers shown in drills tab ---------------- */
+const TEASERS = CARDS.filter(c => c.t === "math");
+
+/* ============== helpers ============== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function shuffle(a){ a = a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); }
+CARDS.forEach((c,i)=>{ c.id = c.t + ":" + i; });
+QUIZ.forEach((q,i)=>{ q.id = q.t + ":" + i; });
+function topicOptions(sel, withAll){
+  sel.innerHTML = (withAll ? '<option value="all">All topics</option>' : "") +
+    Object.entries(TOPICS).map(([k,v]) => '<option value="'+k+'">'+esc(v)+'</option>').join("");
+}
+
+/* ============== theme ============== */
+(function(){
+  const order = ["auto","light","dark"];
+  let mode = store.get("theme","auto");
+  const apply = () => { if(mode === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", mode); };
+  apply();
+  $("#themeBtn").addEventListener("click", () => { mode = order[(order.indexOf(mode)+1)%3]; store.set("theme",mode); apply(); toast("Theme: " + mode); });
+})();
+
+/* ============== router ============== */
+const views = ["home","roadmap","learn","flash","quiz","drills","check","cheat"];
+function go(v){
+  if(!views.includes(v)) v = "home";
+  document.querySelectorAll("section.view").forEach(s => s.classList.toggle("active", s.id === "view-"+v));
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === v ? "true" : "false"));
+  if(location.hash.slice(1) !== v) history.replaceState(null, "", "#"+v);
+  if(v === "home") renderDash();
+  window.scrollTo({top:0});
+}
+document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => go(b.dataset.view)));
+document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
+window.addEventListener("hashchange", () => go(location.hash.slice(1)));
+
+/* ============== dashboard ============== */
+function renderDash(){
+  const boxes = store.get("fcBoxes",{});
+  const mastered = CARDS.filter(c => (boxes[c.id]||0) >= 3).length;
+  const hist = store.get("quizHist",[]);
+  const best = hist.length ? Math.max(...hist.map(h => Math.round(h.score/h.total*100))) : null;
+  const chk = store.get("checks",{});
+  const totalChk = CHECKLIST.reduce((n,g)=>n+g.items.length,0);
+  const doneChk = Object.values(chk).filter(Boolean).length;
+  const readMods = store.get("readMods",{});
+  const nRead = MODULES.filter(m => readMods[m.id]).length;
+  const tiles = [
+    ["Modules read", nRead + "/" + MODULES.length, nRead/MODULES.length],
+    ["Cards mastered", mastered + "/" + CARDS.length, mastered/CARDS.length],
+    ["Best quiz score", best == null ? "—" : best + "%", (best||0)/100],
+    ["Checklist", doneChk + "/" + totalChk, doneChk/totalChk],
+    ["Math sprint best", String(store.get("drBest",0)), Math.min(1, store.get("drBest",0)/30)]
+  ];
+  $("#dash").innerHTML = tiles.map(t => '<div class="card stat"><div class="lbl">'+t[0]+'</div><div class="num">'+t[1]+'</div><div class="meter"><i style="width:'+Math.round(t[2]*100)+'%"></i></div></div>').join("");
+}
+
+/* ============== learn ============== */
+let curMod = store.get("curMod", MODULES[0].id);
+function renderLearnSide(){
+  const read = store.get("readMods",{});
+  $("#learnSide").innerHTML = MODULES.map(m => '<button data-mod="'+m.id+'" aria-current="'+(m.id===curMod)+'"><span>'+esc(m.title)+'</span>'+(read[m.id]?'<span class="tick">✓</span>':'')+'</button>').join("");
+  $("#learnSide").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { curMod = b.dataset.mod; store.set("curMod",curMod); renderLearn(); window.scrollTo({top:0}); }));
+}
+function renderLearn(){
+  const m = MODULES.find(x => x.id === curMod) || MODULES[0];
+  const idx = MODULES.indexOf(m);
+  const read = store.get("readMods",{});
+  const hasQuiz = QUIZ.some(q => q.t === m.id);
+  const hasCards = CARDS.some(c => c.t === m.id);
+  $("#learnBody").innerHTML =
+    '<div class="card module"><h2>'+esc(m.title)+' <span class="pill acc">Module '+(idx+1)+'/'+MODULES.length+'</span></h2>'+m.body+
+    '<div class="module-foot">'+
+      (hasQuiz?'<button class="btn primary" id="modQuiz">⚡ Quick check (3 questions)</button>':'')+
+      (hasCards?'<button class="btn" id="modCards">Flashcards for this topic</button>':'')+
+      '<button class="btn" id="modRead">'+(read[m.id]?'✓ Marked as read':'Mark as read')+'</button>'+
+      (idx < MODULES.length-1 ? '<button class="btn" id="modNext" style="margin-left:auto">Next: '+esc(MODULES[idx+1].title)+' →</button>' : '')+
+    '</div></div>';
+  renderLearnSide();
+  if(hasQuiz) $("#modQuiz").addEventListener("click", () => openPopQuiz(m.id, 3));
+  if(hasCards) $("#modCards").addEventListener("click", () => { $("#fcDeck").value = m.id; fcBuild(); go("flash"); });
+  $("#modRead").addEventListener("click", () => { const r = store.get("readMods",{}); r[m.id] = !r[m.id]; store.set("readMods", r); renderLearn(); });
+  const nx = $("#modNext"); if(nx) nx.addEventListener("click", () => { const r = store.get("readMods",{}); r[m.id] = true; store.set("readMods", r); curMod = MODULES[idx+1].id; store.set("curMod",curMod); renderLearn(); window.scrollTo({top:0}); });
+}
+
+/* ============== flashcards ============== */
+let fcList = [], fcI = 0;
+function fcBoxes(){ return store.get("fcBoxes",{}); }
+function fcDeckCards(){
+  const deck = $("#fcDeck").value, q = $("#fcSearch").value.trim().toLowerCase();
+  let list = CARDS.filter(c => (deck === "all" || c.t === deck));
+  if(q) list = list.filter(c => (c.q + " " + c.a).toLowerCase().includes(q));
+  return list;
+}
+function fcStats(){
+  const boxes = fcBoxes(), deckAll = fcDeckCards();
+  const mastered = deckAll.filter(c => (boxes[c.id]||0) >= 3).length;
+  $("#fcStats").innerHTML = '<span>'+deckAll.length+' cards</span>·<span>'+mastered+' mastered</span>·<span>'+(deckAll.length-mastered)+' to go</span>';
+  $("#fcMeter").style.width = (deckAll.length ? Math.round(mastered/deckAll.length*100) : 0) + "%";
+}
+function fcBuild(){
+  const boxes = fcBoxes();
+  fcList = fcDeckCards();
+  if($("#fcMode").value === "due") fcList = fcList.filter(c => (boxes[c.id]||0) < 3);
+  fcI = 0;
+  fcStats(); fcShow();
+}
+function fcShow(){
+  // drop the flip without animating so the next card's answer never shows mid-turn
+  const fc = $("#fc"); fc.style.transition = "none"; fc.classList.remove("flipped"); void fc.offsetWidth; fc.style.transition = "";
+  const btns = ["#fcAgain","#fcGot","#fcPrev","#fcNext"];
+  if(!fcList.length){
+    $("#fcTopic").textContent = ""; $("#fcPos").textContent = "";
+    $("#fcQ").innerHTML = "🎉 Nothing left here.<br><span class='small muted'>Switch to \"All cards\", pick another deck, or clear the search.</span>";
+    $("#fcA").innerHTML = ""; $("#fcBoxes").innerHTML = "";
+    btns.forEach(s => $(s).disabled = true); return;
+  }
+  btns.forEach(s => $(s).disabled = false);
+  const c = fcList[fcI], b = fcBoxes()[c.id]||0;
+  $("#fcTopic").textContent = TOPICS[c.t];
+  $("#fcPos").textContent = (fcI+1) + " / " + fcList.length;
+  $("#fcQ").innerHTML = esc(c.q);
+  $("#fcA").innerHTML = '<div style="font-weight:650;margin:10px 0 8px">'+esc(c.q)+'</div>' + c.a;
+  $("#fcBoxes").innerHTML = [0,1,2].map(i => '<i class="'+(i<b?'on':'')+'"></i>').join("");
+}
+function fcFlip(){ if(fcList.length) $("#fc").classList.toggle("flipped"); }
+function fcMove(d){ if(!fcList.length) return; fcI = (fcI + d + fcList.length) % fcList.length; fcShow(); }
+function fcMark(ok){
+  if(!fcList.length) return;
+  const c = fcList[fcI], boxes = fcBoxes();
+  boxes[c.id] = ok ? Math.min(3,(boxes[c.id]||0)+1) : 0;
+  store.set("fcBoxes", boxes);
+  if(ok && boxes[c.id] >= 3) toast("Mastered ✓");
+  if($("#fcMode").value === "due" && boxes[c.id] >= 3){
+    fcList.splice(fcI,1);
+  } else if(!ok && fcList.length > 1){
+    // move the missed card a few places later so it comes back soon
+    const card = fcList.splice(fcI,1)[0];
+    fcList.splice(Math.min(fcList.length, fcI+3), 0, card);
+  } else {
+    fcI++;
+  }
+  if(fcI >= fcList.length) fcI = 0;
+  fcStats(); fcShow();
+}
+$("#fc").addEventListener("click", fcFlip);
+$("#fcPrev").addEventListener("click", () => fcMove(-1));
+$("#fcNext").addEventListener("click", () => fcMove(1));
+$("#fcAgain").addEventListener("click", () => fcMark(false));
+$("#fcGot").addEventListener("click", () => fcMark(true));
+$("#fcShuffle").addEventListener("click", () => { fcList = shuffle(fcList); fcI = 0; fcShow(); toast("Shuffled"); });
+$("#fcReset").addEventListener("click", () => { if(confirm("Reset all flashcard progress?")){ store.set("fcBoxes",{}); fcBuild(); toast("Progress reset"); } });
+["#fcDeck","#fcMode"].forEach(s => $(s).addEventListener("change", () => fcBuild()));
+$("#fcSearch").addEventListener("input", () => fcBuild());
+document.addEventListener("keydown", e => {
+  if(!$("#view-flash").classList.contains("active") || $("#overlay").classList.contains("open")) return;
+  if(["INPUT","SELECT","TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if(e.key === " "){ e.preventDefault(); fcFlip(); }
+  else if(e.key === "ArrowRight") fcMove(1);
+  else if(e.key === "ArrowLeft") fcMove(-1);
+  else if(e.key === "1") fcMark(false);
+  else if(e.key === "2") fcMark(true);
+});
+
+/* ============== quiz engine (shared by Quiz tab and pop-ups) ============== */
+function prepQuestion(q){
+  const order = shuffle(q.o.map((_,i)=>i));
+  return { src:q, opts: order.map(i => q.o[i]), correct: order.indexOf(q.a) };
+}
+function pickQuestions(topic, n){
+  const pool = QUIZ.filter(q => topic === "all" || q.t === topic);
+  return shuffle(pool).slice(0, Math.min(n, pool.length)).map(prepQuestion);
+}
+/* renders one question into el; calls done(isCorrect) after answering */
+function renderQuestion(el, pq, header, done, timed){
+  el.innerHTML = '<div class="qhead"><span class="pill acc">'+esc(TOPICS[pq.src.t])+'</span><span class="small muted">'+header+'</span></div>'+
+    '<div class="qtext">'+esc(pq.src.q)+'</div>'+
+    pq.opts.map((o,i) => '<button class="opt" data-i="'+i+'"><b>'+"ABCD"[i]+'.</b> '+esc(o)+'</button>').join("")+
+    '<div class="qslot"></div>';
+  let answered = false, timer = null;
+  const finish = (i) => {
+    if(answered) return; answered = true; clearInterval(timer);
+    const ok = i === pq.correct;
+    el.querySelectorAll(".opt").forEach((b,j) => { b.disabled = true; if(j === pq.correct) b.classList.add("correct"); else if(j === i) b.classList.add("wrong"); });
+    el.querySelector(".qslot").innerHTML = '<div class="explain"><b>'+(ok?'✅ Correct.':(i<0?'⏱ Time\'s up.':'❌ Not quite.'))+'</b> '+esc(pq.src.e)+'</div>';
+    done(ok, el.querySelector(".qslot"));
+  };
+  el.querySelectorAll(".opt").forEach(b => b.addEventListener("click", () => finish(+b.dataset.i)));
+  if(timed){
+    let left = 45; const head = el.querySelector(".qhead .small");
+    head.textContent = header + " · " + left + "s";
+    timer = setInterval(() => { left--; head.textContent = header + " · " + left + "s"; if(left <= 0) finish(-1); }, 1000);
+  }
+  return () => clearInterval(timer);
+}
+
+/* --- quiz tab --- */
+let quizState = null;
+function renderQuizHistory(){
+  const h = store.get("quizHist",[]);
+  $("#qHistory").innerHTML = h.length ? "Recent: " + h.slice(-6).reverse().map(x => esc(x.topic)+" "+x.score+"/"+x.total).join(" · ") : "No quizzes taken yet.";
+}
+$("#qStart").addEventListener("click", () => {
+  const topic = $("#qTopic").value, n = +$("#qCount").value;
+  quizState = { topic, qs: pickQuestions(topic, n), i:0, score:0, wrong:[], timed: $("#qTimed").checked, byTopic:{} };
+  $("#quizSetup").style.display = "none"; $("#quizRun").style.display = "block";
+  quizStep();
+});
+function quizStep(){
+  const s = quizState, el = $("#quizRun");
+  if(s.i >= s.qs.length) return quizEnd();
+  const pq = s.qs[s.i];
+  s.stop = renderQuestion(el, pq, "Question "+(s.i+1)+" of "+s.qs.length+" · Score "+s.score, (ok, slot) => {
+    const bt = s.byTopic[pq.src.t] || (s.byTopic[pq.src.t] = {c:0,n:0}); bt.n++;
+    if(ok){ s.score++; bt.c++; } else s.wrong.push(pq);
+    slot.insertAdjacentHTML("beforeend", '<div class="row" style="margin-top:12px"><button class="btn primary" id="qNext">'+(s.i+1 < s.qs.length ? 'Next question →' : 'See results')+'</button><button class="btn" id="qQuit">Quit</button></div>');
+    $("#qNext").focus();
+    $("#qNext").addEventListener("click", () => { s.i++; quizStep(); });
+    $("#qQuit").addEventListener("click", quizEnd);
+  }, s.timed);
+}
+function quizEnd(){
+  const s = quizState; if(s.stop) s.stop();
+  const answered = Object.values(s.byTopic).reduce((n,b)=>n+b.n,0);
+  if(answered){
+    const h = store.get("quizHist",[]); h.push({topic: s.topic==="all"?"Mixed":TOPICS[s.topic], score:s.score, total:answered, at:Date.now()}); store.set("quizHist", h.slice(-30));
+  }
+  const pct = answered ? Math.round(s.score/answered*100) : 0;
+  const msg = pct >= 90 ? "Interview-ready on this set." : pct >= 70 ? "Solid. Review the misses below." : "Keep going: re-read the module and drill the flashcards.";
+  $("#quizRun").innerHTML = '<h3 style="margin-top:0">Score: '+s.score+' / '+answered+' ('+pct+'%)</h3><p>'+msg+'</p>'+
+    '<div class="tablewrap"><table><tr><th>Topic</th><th>Correct</th></tr>'+Object.entries(s.byTopic).map(([k,b]) => '<tr><td>'+esc(TOPICS[k])+'</td><td>'+b.c+' / '+b.n+'</td></tr>').join("")+'</table></div>'+
+    (s.wrong.length ? '<h4>Review your misses</h4>'+s.wrong.map(w => '<details><summary>'+esc(w.src.q)+'</summary><p><b>Answer:</b> '+esc(w.src.o[w.src.a])+'</p><p class="muted">'+esc(w.src.e)+'</p></details>').join("") : '')+
+    '<div class="row" style="margin-top:14px"><button class="btn primary" id="qAgain">New quiz</button>'+(s.wrong.length?'<button class="btn" id="qRetry">Retry missed ('+s.wrong.length+')</button>':'')+'</div>';
+  $("#qAgain").addEventListener("click", () => { $("#quizRun").style.display="none"; $("#quizSetup").style.display="block"; renderQuizHistory(); });
+  const r = $("#qRetry"); if(r) r.addEventListener("click", () => {
+    quizState = { topic:s.topic, qs: shuffle(s.wrong.map(w => prepQuestion(w.src))), i:0, score:0, wrong:[], timed:s.timed, byTopic:{} };
+    quizStep();
+  });
+  renderQuizHistory();
+}
+
+/* --- pop-up quiz modal --- */
+let popStop = null;
+function closeModal(){ if(popStop) popStop(); $("#overlay").classList.remove("open"); }
+function openPopQuiz(topic, n){
+  if($("#overlay").classList.contains("open")) return;
+  const qs = pickQuestions(topic || "all", n || 1);
+  if(!qs.length) return;
+  let i = 0, score = 0;
+  const modal = $("#modal");
+  $("#overlay").classList.add("open");
+  const step = () => {
+    modal.innerHTML = '<div class="modal-head"><h3 id="modalTitle" style="margin:0">⚡ Pop quiz</h3><button class="iconbtn" id="mClose" aria-label="Close">✕</button></div><div id="mBody"></div>';
+    $("#mClose").addEventListener("click", closeModal);
+    popStop = renderQuestion($("#mBody"), qs[i], qs.length > 1 ? (i+1)+" of "+qs.length : "Quick check", (ok, slot) => {
+      if(ok) score++;
+      const last = i === qs.length - 1;
+      slot.insertAdjacentHTML("beforeend", '<div class="row" style="margin-top:12px">'+
+        (last ? (qs.length > 1 ? '<span><b>'+score+' / '+qs.length+'</b> correct</span>' : '')+'<button class="btn primary" id="mDone">Back to studying</button><button class="btn" id="mMore">Another one</button>'
+              : '<button class="btn primary" id="mNext">Next →</button>')+'</div>');
+      if(last){
+        $("#mDone").addEventListener("click", closeModal); $("#mDone").focus();
+        $("#mMore").addEventListener("click", () => { closeModal(); openPopQuiz(topic, 1); });
+      } else { $("#mNext").addEventListener("click", () => { i++; step(); }); $("#mNext").focus(); }
+    });
+  };
+  step();
+}
+$("#popBtn").addEventListener("click", () => openPopQuiz($("#popTopic").value, 1));
+$("#overlay").addEventListener("click", e => { if(e.target.id === "overlay") closeModal(); });
+document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#overlay").classList.contains("open")) closeModal(); });
+
+/* auto pop-ups */
+let popTimer = null;
+function schedulePop(){
+  clearInterval(popTimer);
+  const mins = +$("#popInterval").value;
+  store.set("popInterval", mins); store.set("popTopic", $("#popTopic").value);
+  if(mins > 0) popTimer = setInterval(() => { if(!document.hidden && !drill.running) openPopQuiz($("#popTopic").value, 1); }, mins*60000);
+}
+$("#popInterval").addEventListener("change", () => { schedulePop(); toast(+$("#popInterval").value ? "Auto pop quiz on" : "Auto pop quiz off"); });
+$("#popTopic").addEventListener("change", schedulePop);
+
+/* ============== math drills ============== */
+const drill = { running:false, score:0, end:0, cur:null, raf:0, log:[] };
+function rnd(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function genDrill(){
+  const kind = rnd(0,6);
+  if(kind === 0){ const p = pick([5,10,15,20,25,30,40,60,75]); const base = pick([20,40,60,80,120,160,200,240,320,400,480,600]); const ans = p*base/100; if(ans % 1) return genDrill(); return {q:p+"% of "+base, a:ans}; }
+  if(kind === 1){ const a = rnd(11,29), b = rnd(3,19); return {q:a+" × "+b, a:a*b}; }
+  if(kind === 2){ const e = pick([15,20,25,30,40,45,50,60,75,80,120]), m = pick([6,7,8,9,10,12]); return {q:"EBITDA "+e+" at "+m+"x = EV ?", a:e*m}; }
+  if(kind === 3){ const m = pick([6,8,10,12,15]), e = rnd(3,40)*5; return {q:"EV "+e*m+" ÷ "+m+"x = EBITDA ?", a:e}; }
+  if(kind === 4){ const g = pick([5,10,20,25,50]), base = pick([40,80,120,200,240,400,800]); const ans = base*(100+g)/100; if(ans % 1) return genDrill(); return {q:base+" grown "+g+"%", a:ans}; }
+  if(kind === 5){ const a = rnd(500,980), b = rnd(45,480); return Math.random()<.5 ? {q:a+" + "+b, a:a+b} : {q:a+" − "+b, a:a-b}; }
+  const sq = rnd(11,25); return {q:sq+"²", a:sq*sq};
+}
+function drillNext(){ drill.cur = genDrill(); $("#drQ").textContent = drill.cur.q; $("#drIn").value = ""; $("#drIn").focus(); }
+function drillTick(){
+  const left = Math.max(0, drill.end - performance.now());
+  $("#drTimer").textContent = (left/1000).toFixed(1);
+  if(left <= 0) return drillStop();
+  drill.raf = requestAnimationFrame(drillTick);
+}
+function drillStop(){
+  drill.running = false; cancelAnimationFrame(drill.raf);
+  $("#drIn").disabled = true; $("#drSkip").disabled = true; $("#drStart").disabled = false;
+  const best = store.get("drBest",0);
+  if(drill.score > best){ store.set("drBest", drill.score); toast("New best: " + drill.score); }
+  $("#drBest").textContent = store.get("drBest",0);
+  $("#drQ").textContent = "Done: " + drill.score + " correct";
+  $("#drLog").innerHTML = drill.log.length ? "<b>Missed / skipped:</b> " + drill.log.map(l => esc(l.q)+" = "+l.a).join(" · ") : "Clean run, nothing missed.";
+}
+$("#drStart").addEventListener("click", () => {
+  Object.assign(drill, {running:true, score:0, end: performance.now()+60000, log:[]});
+  $("#drScore").textContent = 0; $("#drLog").innerHTML = "";
+  $("#drIn").disabled = false; $("#drSkip").disabled = false; $("#drStart").disabled = true;
+  drillNext(); drillTick();
+});
+function drillFlash(cls){ const card = $("#drillCard"); card.classList.remove("flash-good","flash-bad"); void card.offsetWidth; card.classList.add(cls); }
+// a correct answer is accepted as soon as it's typed (mobile number pads have no Enter key)
+$("#drIn").addEventListener("input", () => {
+  if(drill.running && parseFloat($("#drIn").value) === drill.cur.a){ drill.score++; $("#drScore").textContent = drill.score; drillFlash("flash-good"); drillNext(); }
+});
+$("#drIn").addEventListener("keydown", e => {
+  if(e.key === "Enter" && drill.running){ drillFlash("flash-bad"); $("#drIn").select(); }
+});
+$("#drSkip").addEventListener("click", () => { if(!drill.running) return; drill.log.push(drill.cur); drillNext(); });
+
+/* ============== checklist ============== */
+function renderChecklist(){
+  const st = store.get("checks",{});
+  let total = 0, done = 0;
+  $("#checklist").innerHTML = CHECKLIST.map((g,gi) => '<div class="card"><h4>'+esc(g.g)+'</h4>'+g.items.map((it,ii) => {
+    const k = gi+"-"+ii; total++; if(st[k]) done++;
+    return '<label class="chk'+(st[k]?' done':'')+'"><input type="checkbox" data-k="'+k+'"'+(st[k]?' checked':'')+'><span>'+esc(it)+'</span></label>';
+  }).join("")+'</div>').join("");
+  $("#chkMeter").style.width = Math.round(done/total*100) + "%";
+  $("#checklist").querySelectorAll("input").forEach(i => i.addEventListener("change", () => { const s = store.get("checks",{}); s[i.dataset.k] = i.checked; store.set("checks", s); renderChecklist(); }));
+}
+
+/* ============== init ============== */
+topicOptions($("#fcDeck"), true);
+topicOptions($("#qTopic"), true);
+topicOptions($("#popTopic"), true);
+$("#teasers").innerHTML = TEASERS.map(t => '<details><summary>'+esc(t.q)+'</summary><p>'+t.a+'</p></details>').join("");
+$("#drBest").textContent = store.get("drBest",0);
+$("#popInterval").value = String(store.get("popInterval",0));
+$("#popTopic").value = store.get("popTopic","all");
+schedulePop();
+renderLearn();
+fcBuild();
+renderQuizHistory();
+renderChecklist();
+go(location.hash.slice(1) || "home");
+</script>
+</body>
+</html>

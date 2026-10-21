@@ -140,3 +140,13 @@ Hasil regresi terakhir: **0 defect di 16 laporan dari 13 bank** (`python -m bank
   Memori dibaca dari repo saat app mulai, dan tombol **💾 Simpan memori pola** menyimpannya lagi
   (digabung dengan isi repo, tidak menimpa). Tanpa secrets: download mappings.json lalu upload lagi
   di sesi berikutnya (expander *Memori pola*).
+
+---
+
+## IB Prep Studio (offline)
+
+`ib-prep/index.html` is a standalone, offline study guide for breaking into investment banking:
+recruiting roadmap, technical modules (accounting, EV, valuation, DCF, M&A, LBO, FIG), behavioral prep,
+spaced-repetition flashcards, quizzes with explanations, pop-up quizzes, mental-math sprints and a prep
+checklist. Download the file and open it in any browser; no internet or install needed. Progress is saved in
+the browser's local storage.
