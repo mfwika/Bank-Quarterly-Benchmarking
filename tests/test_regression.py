@@ -24,7 +24,7 @@ def chained():
 @pytest.mark.regression
 @pytest.mark.parametrize("case", CASES, ids=[f"{c['sheet']}-{c['month']}-{c['year']}" for c in CASES])
 def test_real_report_zero_defect(case, models, chained):
-    if not os.path.exists(regress.report_path(case)):
+    if not regress.case_exists(case):
         pytest.skip("laporan tidak ada")
     if case.get("ocr"):
         pytest.importorskip("pytesseract")

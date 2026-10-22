@@ -31,12 +31,32 @@ def report_path(case):
     return os.path.join(REG_DIR, "reports", case["file"])
 
 
+def read_case(case):
+    """-> (rows, text). Kasus 'files' (laporan OJK: satu file per laporan) digabung jadi satu sumber."""
+    if case.get("files"):
+        from .ojk import merge_sources
+
+        parts = []
+        for name in case["files"]:
+            path = os.path.join(REG_DIR, "reports", name)
+            with open(path, "rb") as fh:
+                parts.append(parse_source(os.path.basename(path), fh.read()))
+        return merge_sources(parts)
+    path = report_path(case)
+    with open(path, "rb") as fh:
+        return parse_source(os.path.basename(path), fh.read())
+
+
+def case_exists(case):
+    if case.get("files"):
+        return all(os.path.exists(os.path.join(REG_DIR, "reports", n)) for n in case["files"])
+    return os.path.exists(report_path(case))
+
+
 def run_case(case, models, chained=None):
     """`chained`: {file: (model, hints)} hasil kasus sebelumnya -> kasus dengan "after" memakai
     kolom hasil laporan itu sebagai periode acuan (seperti app memproses file berurutan)."""
-    path = report_path(case)
-    with open(path, "rb") as fh:
-        rows, _ = parse_source(os.path.basename(path), fh.read())
+    rows, _ = read_case(case)
     model, hints = models[case["sheet"]], None
     if case.get("after"):
         if not chained or case["after"] not in chained:
@@ -52,7 +72,8 @@ def run_case(case, models, chained=None):
         chained[case["file"]] = (model.with_column(tc, label, fv, hints=mem), {int(k): v for k, v in mem.items()})
     vals = {r.row: r.value for r in res if r.value is not None}
     beda = [c for c in reconcile(mt, vals) if c["Status"] == "BEDA"]
-    empty = [r for r in res if r.kind == "Nilai" and r.value is None and not r.formula]
+    allowed = set(case.get("allow_empty", []))  # pos yang memang tidak ada di sumber (mis. format OJK ringkas)
+    empty = [r for r in res if r.kind == "Nilai" and r.value is None and not r.formula and r.row not in allowed]
     cek = [r for r in res if "CEK" in (r.note or "")]
     return {"beda": beda, "empty": empty, "cek": cek, "results": res}
 
@@ -64,7 +85,7 @@ def main(argv):
     for case in load_manifest():
         if argv and case["sheet"] not in argv:
             continue
-        if not os.path.exists(report_path(case)) or (case.get("after") and case["after"] not in chained):
+        if not case_exists(case) or (case.get("after") and case["after"] not in chained):
             print(f"SKIP {case['file']} (file / laporan acuan tidak ada)")
             continue
         out = run_case(case, models, chained)
