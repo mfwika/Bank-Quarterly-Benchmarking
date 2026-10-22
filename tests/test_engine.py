@@ -497,3 +497,14 @@ def test_npl_formula_without_divisor_is_recognised():
 
     f = "=(27986+436079+16611637)"
     assert re.match(r"^=\s*\(?([\d.+\s]+?)\)?()\s*$", f)
+
+
+def test_clean_formula_from_review_table():
+    from bankbench.text import clean_formula
+
+    assert clean_formula("1202237-2985") == "=1202237-2985"
+    assert clean_formula("=1,202,237-2,985") == "=1202237-2985"
+    assert clean_formula("=1.202.237-2.985") == "=1202237-2985"  # titik ribuan gaya Indonesia
+    assert clean_formula("=1.5*2") == "=1.5*2"  # desimal tetap
+    assert clean_formula("=R444/R376*100") == "=R444/R376*100"
+    assert clean_formula("  ") == ""
