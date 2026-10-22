@@ -1135,6 +1135,12 @@ class StrictMatcher(Matcher):
                     res.score = round(min(hint[0], 100.0), 1)
             out.append(res)
         self._fx_into_operating(out)
+        if any((getattr(x, "group", None) or "").startswith("OJK|") for x in self.source):
+            for r in out:
+                if r.kind == "Nilai" and r.value is None and not r.formula and r.section in ("BS", "IS", "CAP"):
+                    r.note = (r.note or "⚠ tidak diisi") + (
+                        " — format OJK lebih ringkas dari publikasi bank: pos ini kemungkinan sudah termasuk di pos "
+                        "lain (cek Cek total). Isi manual dari laporan bank bila perlu rinciannya.")
         return out
 
     def _fx_into_operating(self, out):

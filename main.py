@@ -13,12 +13,15 @@ Alur:
    jadi acuan untuk Jun 26.
 5. Review -> cek total -> generate & download.
 """
+import copy
 import hashlib
 import io
 import json
 import os
+import re
 import warnings
 from datetime import datetime
+from types import SimpleNamespace
 
 import openpyxl
 import pandas as pd
@@ -62,6 +65,7 @@ from bankbench.source_parser import ocr_available, parse_source
 from bankbench.template_model import SECTION_NAMES, load_bank_models
 from bankbench.writer import apply_to_workbook, write_issue_sheet
 from bankbench.compare import compare_workbooks
+from bankbench.ojk import merge_sources
 
 st.set_page_config(page_title="Auto-Update Template Benchmarking", layout="wide")
 st.title("Auto-Update Template Benchmarking")
@@ -90,7 +94,7 @@ ALL_SECTIONS = ["BS", "IS", "CAP", "RATIO", "NPL"]
 # ---------------------------------------------------------------------------------
 # Naikkan angka ini setiap struktur data parser/model berubah -> cache lama otomatis dibuang
 # (Streamlit Cloud tidak selalu restart penuh setelah update kode).
-CACHE_VERSION = 10
+CACHE_VERSION = 11
 
 
 @st.cache_data(show_spinner=False)
@@ -188,7 +192,7 @@ for f in uploads:
         except Exception as e:  # file rusak / terenkripsi / bukan PDF teks
             st.error(f"Gagal membaca '{f.name}': {e}")
             continue
-    if not [r for r in rows if r.section in ("BS", "IS", "CAP", "?")]:
+    if not [r for r in rows if r.section in ("BS", "IS", "CAP", "?") or getattr(r, "group", None)]:
         st.error(
             f"Tidak ada akun + angka yang terbaca dari '{f.name}'. Kalau PDF-nya berupa gambar/scan, "
             + ("OCR sudah dicoba tapi gagal — " if ocr_available() else "OCR (Tesseract) belum terpasang di server — ")
@@ -196,6 +200,28 @@ for f in uploads:
         )
         continue
     parsed[file_key(f)] = (f, rows, text)
+
+# file export OJK (Posisi Keuangan, Laba Rugi, KPMM, Kualitas Aset, Rasio) milik bank & periode yang sama
+# -> satu laporan
+ojk_groups = {}
+for fk, (f, rows, text) in parsed.items():
+    g = getattr(rows[0], "group", None) if rows else None
+    if g:
+        ojk_groups.setdefault(g, []).append(fk)
+for g, fks in ojk_groups.items():
+    parts = [(copy.deepcopy(parsed[k][1]), parsed[k][2]) for k in fks]
+    rows, text = merge_sources(parts)
+    _, bank_name, per = g.split("|")
+    mon, yr = (int(x) for x in per.split("/"))
+    names = sorted(parsed[k][0].name for k in fks)
+    bank_name = re.sub(r"^Pt\b", "PT", bank_name.title())
+    merged_f = SimpleNamespace(name=f"OJK · {bank_name} · {EN_ABBR[mon]} {yr} ({len(fks)} file)", parts=names)
+    for k in fks:
+        del parsed[k]
+    parsed["ojk_" + hashlib.md5("|".join(sorted(fks)).encode()).hexdigest()[:10]] = (merged_f, rows, text)
+    if not any(r.section == "BS" for r in rows) or not any(r.section == "IS" for r in rows):
+        st.warning(f"Laporan OJK {bank_name} {EN_ABBR[mon]} {yr}: file Posisi Keuangan / Laba Rugi belum ikut "
+                   "di-upload — upload juga supaya Neraca & Laba Rugi bisa diisi.")
 if not parsed:
     st.stop()
 

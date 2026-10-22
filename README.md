@@ -56,6 +56,21 @@ Web tool (Streamlit) untuk meng-update `template.xlsx` benchmarking bank dari
 7. **Menulis**: kolom periode diisi atau **ditambah**; format & semua formula (rasio turunan,
    ANNUALIZER, tanggal periode) ikut diperpanjang.
 
+## Sumber terbaik: Excel dari portal OJK
+
+Laporan publikasi semua bank tersedia di portal OJK (https://cfs.ojk.go.id/cfs/, buka dari
+jaringan Indonesia) dalam format Excel yang **sama untuk semua bank**. Download per bank per periode
+file *Laporan Posisi Keuangan*, *Laba Rugi*, *KPMM*, *Kualitas Aset Produktif* dan *Rasio Keuangan*,
+lalu upload sekaligus — file-file milik bank & periode yang sama otomatis digabung jadi **satu
+laporan** (`bankbench/ojk.py`). Tidak ada OCR / layout koran, jadi hasilnya paling stabil.
+
+Catatan format OJK:
+- Beberapa pos lebih ringkas dari publikasi bank sendiri (mis. Mandiri: kredit + pembiayaan
+  konsumen + sewa pembiayaan jadi satu pos). Baris template rinciannya ditandai ⚠ (total tetap
+  dicek) — isi manual dari laporan bank bila perlu.
+- Export tabel Kualitas Aset kadang kehilangan satu kolom kolektibilitas per periode; kolom itu
+  dihitung ulang dari kolom Jumlah.
+
 ## Menjalankan
 
 ```bash
@@ -78,6 +93,8 @@ dengan OCR (Tesseract; `packages.txt` untuk Streamlit Cloud).
 | `bankbench/writer.py` | Menulis / menambah kolom periode ke workbook |
 | `bankbench/aliases.py` | Kamus padanan nama akun (ID/EN) + pemetaan hasil belajar |
 | `bankbench/banks.py` | Deteksi bank dari laporan (angka histori, judul "PT Bank …", teks, nama file) |
+| `bankbench/ojk.py` | Pembaca Excel portal OJK + penggabungan file satu laporan |
+| `bankbench/compare.py` | Bandingkan template hasil dengan workbook analis (opsional di UI) |
 | `bankbench/crosscheck.py` | Cek silang NPL ÷ total kredit vs rasio NPL gross |
 | `bankbench/persist.py` | Simpan memori pola permanen ke repo GitHub (Streamlit Cloud) |
 | `bankbench/regress.py` | Regresi dengan laporan asli di `tests/regression` |

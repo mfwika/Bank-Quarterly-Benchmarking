@@ -45,6 +45,7 @@ class SourceRow:
     cats: list | None = None  # kolektibilitas per kolom (L/DPK/KL/D/M/JUMLAH) di tabel kualitas aset
     ancestors: list | None = None  # semua induk (paling luar dulu)
     company: str | None = None  # 'PT Bank X ...' di judul tabelnya (laporan grup induk di halaman yang sama)
+    group: str | None = None  # file OJK: 'OJK|<bank>|<bulan>/<tahun>' -> file-file satu laporan digabung
 
     def value_at(self, i):
         return self.values[i] if 0 <= i < len(self.values) else None
@@ -1308,4 +1309,8 @@ def parse_excel(file_bytes: bytes):
 def parse_source(filename: str, file_bytes: bytes):
     if filename.lower().endswith(".pdf"):
         return parse_pdf(file_bytes)
+    from .ojk import is_ojk_excel, parse_ojk_excel
+
+    if is_ojk_excel(file_bytes):
+        return parse_ojk_excel(file_bytes)  # export portal OJK (cfs.ojk.go.id)
     return parse_excel(file_bytes)

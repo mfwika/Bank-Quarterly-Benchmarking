@@ -15,5 +15,6 @@
   {"file": "Panin_Des2025.pdf", "sheet": "Panin", "month": 12, "year": 2025},
   {"file": "Maybank_Des2025.pdf", "sheet": "BII", "month": 12, "year": 2025},
   {"file": "Danamon_Des2025.pdf", "sheet": "Danamon", "month": 12, "year": 2025},
-  {"file": "Danamon_Jun2026.pdf", "sheet": "Danamon", "month": 6, "year": 2026, "after": "Danamon_Des2025.pdf"}
+  {"file": "Danamon_Jun2026.pdf", "sheet": "Danamon", "month": 6, "year": 2026, "after": "Danamon_Des2025.pdf"},
+  {"file": "OJK_Mandiri_Jun2026", "files": ["ojk_mandiri_jun2026/posisi_keuangan.xlsx", "ojk_mandiri_jun2026/laba_rugi.xlsx", "ojk_mandiri_jun2026/kpmm.xlsx", "ojk_mandiri_jun2026/kualitas_aset.xlsx", "ojk_mandiri_jun2026/rasio.xlsx"], "sheet": "Mandiri", "month": 6, "year": 2026, "after": "Mandiri_Q4_2025.pdf", "allow_empty": [43]}
 ]
