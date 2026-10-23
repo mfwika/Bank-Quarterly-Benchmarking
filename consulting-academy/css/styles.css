@@ -242,6 +242,8 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: .95rem; backgroun
 .tbl th, .tbl td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
 .tbl th { background: var(--surface-2); font-size: .85rem; }
 .tbl td:not(:first-child), .tbl th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl.text td, .tbl.text th { text-align: left; vertical-align: top; }
+.tbl.text td { font-size: .92rem; min-width: 140px; }
 .interviewer { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--gold-soft); border-left: 4px solid var(--gold); }
 
 .difficulty { color: var(--gold); letter-spacing: 2px; }
@@ -355,7 +357,7 @@ details.sample summary { cursor: pointer; font-weight: 700; }
 }
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; }
-  .lesson { grid-template-columns: 1fr; }
+  .lesson { grid-template-columns: minmax(0, 1fr); }
   .lesson aside { position: static; }
 }
 @media (max-width: 640px) {

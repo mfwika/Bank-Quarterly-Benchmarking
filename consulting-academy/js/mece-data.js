@@ -715,6 +715,146 @@
           priority: ["Parents' demand", "Access to services"]
         },
         takeaway: "Supply · access · demand works for almost any 'why aren't people using X?' question, from vaccines to bank apps. Rule branches out with the facts given."
+      },
+      /* ------------------------------------------------------------ */
+      {
+        id: "repair-market",
+        icon: "🔧",
+        title: "Japan phone-repair market",
+        type: "Market sizing",
+        difficulty: 2,
+        prompt: "A walk-in phone-repair chain wants to know the size of Japan's annual consumer market for smartphone repairs (iPhone and Android; repairs at official stores count if paid per repair; warranty plans and business customers are excluded). Structure the estimate, and say which axis you'd segment by.",
+        question: "Annual consumer smartphone-repair market in Japan",
+        frames: [
+          { name: "Driver chain: phones in use × failures × share repaired × price", pillars: [
+            { id: "use", label: "Phones in use", kw: ["phones in use", "installed base", "smartphone user", "users", "owner", "ownership", "number of phone", "pengguna"], alt: ["population", "penetration", "phones per", "units per", "penduduk"], subs: [
+              { label: "Population", kw: ["population", "people", "penduduk"] },
+              { label: "Ownership rate", kw: ["ownership", "penetration", "own"] },
+              { label: "Phones per person", kw: ["per person", "phones per", "units per", "devices per"] }
+            ] },
+            { id: "fail", label: "Failures per phone per year", kw: ["failure", "break", "broken", "damage", "fault", "rusak", "kerusakan"], alt: ["accident", "crack", "drop", "battery wear"], subs: [
+              { label: "Device price / type (cheap, Android)", kw: ["android", "cheap", "budget", "low-price", "low price", "device price", "brand"] },
+              { label: "Usage intensity (e.g. young users)", kw: ["usage", "heavy", "young", "intensity"] },
+              { label: "How long phones are kept", kw: ["older", "years", "kept", "lifespan", "old phone", "age of"] }
+            ] },
+            { id: "share", label: "Share of failures repaired", kw: ["share repaired", "repair rate", "% repaired", "repaired", "repair vs replace", "decide to repair"], alt: ["replace", "warranty cover", "carrier", "insurance", "afford"], subs: [
+              { label: "Maker / carrier cover", kw: ["warrant", "carrier", "insurance", "cover", "applecare"] },
+              { label: "Repair vs replace decision", kw: ["replace", "new phone", "upgrade"] },
+              { label: "Ability to pay / urgency", kw: ["afford", "income", "urgen", "finances"] }
+            ] },
+            { id: "price", label: "Price per repair", kw: ["price", "pric", "harga", "fee", "cost per repair", "revenue per repair", "average ticket"], alt: ["express", "add-on"], subs: [
+              { label: "Repair type mix (screen, battery…)", kw: ["screen", "battery", "repair type", "mix"] },
+              { label: "Express and add-on services", kw: ["express", "add-on", "premium", "same-day"] }
+            ] }
+          ] },
+          { name: "Supply side: shops × revenue per shop", pillars: [
+            { id: "shops", label: "Number of repair shops", kw: ["number of shop", "number of store", "shops", "stores", "outlets", "toko"], alt: ["density", "official store"], subs: [
+              { label: "Shop density per population", kw: ["density", "per 100", "per capita", "per resident"] },
+              { label: "Official vs independent shops", kw: ["official", "independent", "apple store", "carrier shop"] }
+            ] },
+            { id: "rev", label: "Revenue per shop", kw: ["revenue per shop", "sales per shop", "revenue per store", "sales per store", "per shop"], alt: ["repairs per day", "tsubo", "throughput"], subs: [
+              { label: "Repairs per day", kw: ["per day", "throughput", "capacity"] },
+              { label: "Average ticket", kw: ["ticket", "price", "average"] }
+            ] }
+          ] }
+        ],
+        priority: { kw: ["income", "failure", "break", "repair rate", "share repaired", "warrant", "segment", "pendapatan"], why: "Ownership and phones per person barely vary, so the estimate turns on failures per year and the share repaired. Both move with income (cheaper phones break more; richer owners have cover and repair more), so segment by income." },
+        offs: [
+          { kw: ["competit", "market share", "profit", "margin"], why: "Sizing asks how big the market is, not who wins it or how profitable it is." },
+          { kw: ["corporate", "business customer", "b2b", "enterprise", "company phone"], why: "Business customers are excluded by the prompt." },
+          { kw: ["plan revenue", "subscription", "plan fee"], why: "Warranty plans are excluded: customers pay per repair." }
+        ],
+        builder: {
+          buckets: [
+            { t: "Phones in use", ok: true }, { t: "Failures per phone per year", ok: true }, { t: "Share of failures repaired", ok: true }, { t: "Price per repair", ok: true },
+            { t: "Repair shops in Tokyo", ok: false, why: "Supply-side and Tokyo-only: it mixes approaches and misses the rest of Japan." },
+            { t: "iPhone", ok: false, why: "One device type. It belongs inside the drivers, not as a bucket." },
+            { t: "Profit margin", ok: false, why: "Margins don't change the size of the market." }
+          ],
+          cards: [
+            { t: "Japan's population", b: "Phones in use" },
+            { t: "Smartphone ownership by income", b: "Phones in use" },
+            { t: "Phones owned per person", b: "Phones in use" },
+            { t: "Cheaper phones break more often", b: "Failures per phone per year" },
+            { t: "Heavy users wear out batteries faster", b: "Failures per phone per year" },
+            { t: "Phones kept for years fail more often", b: "Failures per phone per year" },
+            { t: "Maker or carrier repair cover", b: "Share of failures repaired" },
+            { t: "Choosing to repair rather than replace", b: "Share of failures repaired" },
+            { t: "Standard price of a screen repair", b: "Price per repair" },
+            { t: "Express and add-on service fees", b: "Price per repair" },
+            { t: "Top chain's share of the market", b: null, why: "Who wins the market isn't part of how big it is." },
+            { t: "Repairs of company-issued phones", b: null, why: "Business customers are excluded by the prompt." }
+          ],
+          priority: ["Failures per phone per year", "Share of failures repaired"]
+        },
+        takeaway: "Rate each driver's impact before you segment, then split by the axis that moves the high-impact drivers. Here income drives both how often phones break and how many get repaired."
+      },
+      /* ------------------------------------------------------------ */
+      {
+        id: "repair-growth",
+        icon: "🚀",
+        title: "Accelerating a repair chain",
+        type: "Growth",
+        difficulty: 3,
+        prompt: "Company A runs five walk-in phone-repair shops in Tokyo's busy districts, mostly serving office workers in their 20s–40s with iPhones. Growth has slowed. A typical customer needs a repair only once every few years. How can A accelerate revenue growth over the next five years? Structure your answer.",
+        question: "How can Company A accelerate revenue growth?",
+        frames: [
+          { name: "Revenue = new customers × repairs per customer × revenue per repair", pillars: [
+            { id: "cust", label: "New customers", kw: ["new customer", "customer acquisition", "acquisition", "number of customer", "customers", "pelanggan baru"], alt: ["reach", "awareness", "tie-up", "partner", "seo", "new shop", "new store"], subs: [
+              { label: "Reach new segments or regions", kw: ["segment", "region", "residential", "osaka", "senior", "android", "women", "teen"] },
+              { label: "Be found when a phone breaks", kw: ["tie-up", "partner", "retailer", "seo", "map", "search", "awareness"] },
+              { label: "Remove friction (online, on-site)", kw: ["online", "on-site", "onsite", "visit", "pickup", "same-day", "booking"] }
+            ] },
+            { id: "freq", label: "Repairs per customer", kw: ["frequency", "repairs per customer", "repeat", "retention", "per customer", "usage"], alt: ["loyalty", "check-up", "checkup"], subs: [
+              { label: "Repeat visits and retention", kw: ["repeat", "loyal", "retention", "check"] }
+            ] },
+            { id: "rev", label: "Revenue per repair", kw: ["revenue per repair", "price per", "per repair", "average ticket", "ticket", "spend per"], alt: ["upsell", "cross-sell", "cross sell", "premium", "express", "add-on"], subs: [
+              { label: "Premium / express pricing", kw: ["premium", "express", "same-day", "priority"] },
+              { label: "Cross-sell and add-ons (battery, backup)", kw: ["cross", "battery", "add-on", "backup", "cleaning", "bundle"] }
+            ] }
+          ] },
+          { name: "Where to play / How to win", pillars: [
+            { id: "where", label: "Where to play", kw: ["where to play", "target", "where", "new market", "target market"], alt: ["region", "residential", "osaka", "senior", "teen", "android", "segment"], subs: [
+              { label: "Regions (residential Tokyo, other cities)", kw: ["region", "residential", "osaka", "nagoya", "city", "area", "location"] },
+              { label: "Customer profiles (seniors, teens, women, companies)", kw: ["senior", "teen", "women", "female", "student", "compan", "corporate", "profile", "demographic"] },
+              { label: "Devices (Android)", kw: ["android", "device"] },
+              { label: "Core vs new targets", kw: ["core", "existing", "new target", "current"] }
+            ] },
+            { id: "how", label: "How to win", kw: ["how to win", "win", "differentiat", "value proposition", "competitive advantage"], alt: ["pain point", "needs", "4p", "convenien", "speed"], subs: [
+              { label: "Customer needs and pain points", kw: ["need", "pain", "speed", "fast", "time", "convenien"] },
+              { label: "Competitors' offers", kw: ["competit", "rival", "official store", "peer"] },
+              { label: "Our strengths", kw: ["strength", "capabilit", "advantage"] },
+              { label: "Moves across the 4Ps", kw: ["price", "product", "promotion", "place", "same-day", "on-site", "online", "battery", "partner", "tie-up", "seo"] }
+            ] }
+          ] }
+        ],
+        priority: { kw: ["new customer", "revenue per repair", "price per", "ticket", "acquisition", "pain point", "same-day", "on-site", "online", "speed", "convenien", "where to play", "target", "rarely", "rare"], why: "Repairs are rare, so repairs per customer has little room. The upside is in new customers (be there, fast and convenient, when a phone breaks) and revenue per repair (express service, battery add-ons). Agree the target first." },
+        offs: [
+          { kw: ["cut cost", "reduce cost", "cost reduction", "lower rent", "headcount"], why: "The question is revenue growth. Cost cuts raise profit, not revenue." }
+        ],
+        builder: {
+          buckets: [
+            { t: "New customers", ok: true }, { t: "Repairs per customer", ok: true }, { t: "Revenue per repair", ok: true },
+            { t: "Marketing", ok: false, why: "Marketing can lift every driver, so it overlaps with all three." },
+            { t: "Ginza shop", ok: false, why: "One shop is a detail, not a growth driver." },
+            { t: "Cost reduction", ok: false, why: "That answers a different question: profit, not revenue growth." }
+          ],
+          cards: [
+            { t: "Tie-ups with big electronics retailers", b: "New customers" },
+            { t: "Search and map-listing optimisation", b: "New customers" },
+            { t: "Fully online booking for busy workers", b: "New customers" },
+            { t: "Open shops in residential areas", b: "New customers" },
+            { t: "Free yearly device check-up", b: "Repairs per customer" },
+            { t: "Discount on a customer's next repair", b: "Repairs per customer" },
+            { t: "Premium fee for same-day express repair", b: "Revenue per repair" },
+            { t: "Battery replacement added to each repair", b: "Revenue per repair" },
+            { t: "Paid data backup and cleaning add-ons", b: "Revenue per repair" },
+            { t: "Negotiate lower rent in Ginza", b: null, why: "A cost lever, not revenue growth." },
+            { t: "Cut technician headcount", b: null, why: "A cost lever, and it would reduce repair capacity." }
+          ],
+          priority: ["New customers", "Revenue per repair"]
+        },
+        takeaway: "Split growth into where to play and how to win, then tie each move to a revenue driver. Deprioritise the driver with no room: here, how often a customer needs a repair."
       }
     ]
   };

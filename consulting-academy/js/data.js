@@ -35,6 +35,50 @@ window.CA_DATA = {
   /* ------------------------------------------------------------------ */
   frameworks: [
     {
+      id: "case-interview",
+      group: "core",
+      icon: "🎯",
+      name: "How Case Interviews Work",
+      tagline: "What you'll be asked, why, and exactly what the interviewer is scoring.",
+      intro: "Case questions come in two kinds, often chained together: estimate a number (the market for X, the revenue of company Y) or recommend a strategy (restore profit, triple a restaurant group's sales, win share abroad, double a charity's donations). Neither has a single right answer. The interviewer wants to see whether you can set up the key question, form a hypothesis and test it with analysis when the answer is unclear, because that loop is the job.",
+      tree: { t: "What the interviewer is scoring", c: [
+        { t: "Problem solving", c: [{ t: "Break issues and options down MECE and show the whole picture" }, { t: "Focus on the issues and actions with the biggest impact" }, { t: "Quantify: fast, rounded, sense-checked math" }] },
+        { t: "Driving the discussion", c: [{ t: "Set the key question and your hypothesis yourself" }, { t: "Evolve the hypothesis with the interviewer's input" }, { t: "Return to the original question and land a conclusion" }] },
+        { t: "Openness to feedback", c: [{ t: "Use hints and challenges to improve your answer" }, { t: "Fix what you were told in earlier rounds" }] }
+      ]},
+      keyPoints: [
+        "Work in a loop: set the key question → build a hypothesis → verify it with research and analysis → refine and repeat.",
+        "Two question types: estimating a market or a company's revenue, and recommending a strategy. Many cases chain both: size the market first, then recommend how to grow.",
+        "Own the case like a conversation, not a Q&A: propose where to go next and why.",
+        "When challenged, build on the point. If you were wrong, say so and correct course quickly."
+      ],
+      pitfalls: [
+        "Listing causes one by one ('costs rose, wages rose, weak marketing, price war…') without a structure.",
+        "Spending time on small levers (e.g. social-media tactics) before the biggest driver.",
+        "Calculating to the last digit, mixing up units, and skipping the sense check.",
+        "Getting defensive when the interviewer pushes back, or never reaching a conclusion."
+      ],
+      tables: [
+        { caption: "Common stumbles and how to fix them", headers: ["Skill", "Typical stumble", "What to do instead"], rows: [
+          ["Show the MECE big picture", "Lists factors one by one: \"Profit fell because input costs rose, wages went up, marketing is weak, competition is fierce…\"", "Show the structure first: \"Profit = revenue − cost, and revenue = price × volume. If price fell, the causes could be…\""],
+          ["Focus on what matters", "Jumps to a small lever: \"The carmaker should promote on social media. The key to social media is…\"", "Size the levers first: \"Start with share in the US, its biggest market. For EVs, lead with range per charge, the criterion buyers rank highest.\""],
+          ["Quantify", "Computes to the last digit, makes mistakes and loses track of units", "Round the numbers, calculate fast and accurately, then sense-check the result"],
+          ["Drive the discussion", "Turns the case into one question, one answer, and never reaches a conclusion", "Own the discussion, use the interviewer's hints, keep the pace, and return to the original question to conclude"],
+          ["Use feedback", "Gets defensive and clings to the first idea, or repeats last round's mistakes", "Build on each challenge, correct mistakes openly, and practise the feedback before the next round"]
+        ] },
+        { caption: "Three follow-up questions, and what they really mean", headers: ["They ask", "What it signals", "How to respond"], rows: [
+          ["\"Why do you think so?\"", "The reasoning behind your idea isn't visible", "Show that customers really want it, that it has real impact, and that it's feasible"],
+          ["\"So what does that mean?\"", "Your point hasn't turned into an action", "Say concretely what the client should do (e.g. strengthen the sales force, improve product quality)"],
+          ["\"Anything else?\"", "Something is missing from your structure", "Scan for gaps, e.g. you discussed the product but never the price"]
+        ] }
+      ],
+      quiz: [
+        { q: "The interviewer asks \"So what does that mean for the client?\" What are they signalling?", options: ["Your structure has a gap you still need to fill", "Your analysis hasn't been turned into an action", "Your numbers are probably wrong somewhere", "You've spent too long on this one branch"], answer: 1, explain: "\"So what?\" means your insight hasn't become a concrete recommendation yet. Say what the client should actually do." },
+        { q: "Which behaviour best shows you're driving the discussion?", options: ["Waiting for the interviewer to share each exhibit", "Proposing which branch to explore next, and why", "Answering each question as briefly as possible", "Covering every branch before forming any view"], answer: 1, explain: "Driving means setting the direction yourself, with a reason, and adapting as you learn." },
+        { q: "Your estimate is ¥100B; a supply-side check gives ¥150B. Best next move?", options: ["Same order of magnitude: keep ¥100B", "Switch to ¥150B, as supply data is firmer", "Average the two and report ¥125B as the answer", "Restart with a different method to be safe"], answer: 0, explain: "Sense checks test the order of magnitude. Within ~1.5× is consistent; explain why one side may run higher (e.g. shops also sell accessories)." }
+      ]
+    },
+    {
       id: "mece",
       group: "core",
       icon: "🧩",
@@ -234,7 +278,24 @@ window.CA_DATA = {
         "Say your structure before you calculate — the logic matters more than the result.",
         "Use round numbers: 330M → 300M; 52 weeks → 50.",
         "Segment where it changes the answer (households vs businesses, urban vs rural).",
-        "Market value = units × price. Clarify whether they want units or revenue."
+        "Market value = units × price. Clarify whether they want units or revenue.",
+        "For harder sizings use four steps: (1) factor the market into drivers and rate each driver's impact; (2) hypothesise the axis that moves the high-impact drivers and segment by it; (3) compute each segment and add up; (4) sense-check from two or three angles (real usage, supply side, an upper bound)."
+      ],
+      tables: [
+        { caption: "Step 1 in practice: rate each driver's impact (smartphone repairs in Japan)", headers: ["Driver", "Impact", "Why"], rows: [
+          ["Population", "(what you split)", "The base you divide into segments"],
+          ["Ownership rate", "Low", "Near-universal, apart from low-income households"],
+          ["Phones per person", "Low", "Almost always one for personal use"],
+          ["Failures per phone per year", "High", "Depends on device price and how heavily it's used"],
+          ["Share of failures repaired", "High", "Depends on repair cover and finances"],
+          ["Price per repair", "Medium", "Base price stable; express and add-ons vary"]
+        ] },
+        { caption: "Step 4: sense-check from several angles", headers: ["Angle", "Example", "Result"], rows: [
+          ["Your segmented model", "Income segments × drivers", "≈ ¥100bn"],
+          ["Real usage", "100M people × ¥1,000 a year (one ¥10k repair per decade)", "≈ ¥100bn"],
+          ["Supply side", "≈ 5,000 shops × ≈ ¥30M sales each", "≈ ¥150bn"],
+          ["Upper bound", "Everyone buys a ¥5–6k/yr repair-cover plan", "≈ ¥500–600bn (ceiling)"]
+        ] }
       ],
       pitfalls: [
         "Jumping into numbers without a structure.",
@@ -305,6 +366,36 @@ window.CA_DATA = {
         { q: "A bank starts selling insurance to its existing deposit customers. Which Ansoff quadrant?", options: ["Market penetration", "Product development", "Market development", "Diversification"], answer: 1, explain: "New product (insurance) to existing customers = product development." },
         { q: "Which quadrant is generally riskiest?", options: ["Market penetration", "Product development", "Market development", "Diversification"], answer: 3, explain: "New products in new markets — the furthest from current capabilities." },
         { q: "First step in a growth case?", options: ["Screen acquisition targets that add revenue fast", "Size the growth gap vs the baseline trajectory", "Map the Ansoff quadrants and pick the safest", "Benchmark growth rates against main competitors"], answer: 1, explain: "Know how much growth is needed versus where you're heading anyway." }
+      ]
+    },
+    {
+      id: "where-how",
+      group: "case",
+      icon: "🧭",
+      name: "Where to Play / How to Win",
+      tagline: "Pick the battlefield, then the winning moves, then tie each move to a revenue driver.",
+      intro: "When a client asks how to grow faster, split the question in two. Where to play: which regions, customers and products should we focus on, including targets we don't serve yet? How to win: what do those customers want, what do competitors offer, and what will make us the one they choose? Then translate the winning moves into the revenue drivers they improve, and prioritise.",
+      tree: { t: "How can the client grow revenue faster?", c: [
+        { t: "Where to play", c: [{ t: "Regions: current vs untapped" }, { t: "Customer profiles: current vs untapped" }, { t: "Products or devices served" }, { t: "Decide: deepen the core or open new targets" }] },
+        { t: "How to win", c: [{ t: "Target's needs and pain points, across the 4Ps" }, { t: "Competitors' value propositions" }, { t: "Our strengths and differentiators" }, { t: "Trends that change the game" }] },
+        { t: "Tie moves to revenue drivers", c: [{ t: "New customers" }, { t: "Purchase frequency" }, { t: "Revenue per purchase" }, { t: "Prioritise the drivers with the most room" }] }
+      ]},
+      keyPoints: [
+        "Lay out the where-to-play axes (region, customer profile, product) and mark current vs untapped targets on each.",
+        "Drop axes that don't separate one target from another, e.g. price band if every customer looks the same on it.",
+        "Agree the target with the interviewer before designing moves, and work on one profile at a time.",
+        "For the chosen target, walk the 4Ps: what's the pain point, and which move answers it?",
+        "Map each move to a revenue driver (new customers × frequency × revenue per purchase). Deprioritise drivers with little room, such as frequency in a business people use rarely."
+      ],
+      pitfalls: [
+        "Jumping to tactics before agreeing who the target is.",
+        "Listing ideas without linking them to a revenue driver or sizing them.",
+        "Ignoring competitors' offers and the client's own strengths when picking the winning moves."
+      ],
+      quiz: [
+        { q: "A phone-repair chain serves busy office workers in central Tokyo. Which is a where-to-play question?", options: ["Should we expand to residential areas and Osaka?", "Should we offer same-day repairs at the customer's office?", "Should we bundle a battery swap with every repair?", "Should we improve how our shops appear on map apps?"], answer: 0, explain: "Where to play is about which regions, customers and products to target. The others are how-to-win moves." },
+        { q: "Customers need a phone repair only once every few years. Which revenue driver should you deprioritise?", options: ["Number of new customers", "Repairs per customer per year", "Revenue per repair", "None: all three matter equally"], answer: 1, explain: "When usage is inherently rare, frequency has little room to grow. Focus on winning new customers and on revenue per repair." },
+        { q: "Busy office workers say they \"have no time to take the phone to a shop\". Which move best answers that pain point?", options: ["Match the lowest repair price in the area", "Repair on site, wherever the customer is", "Invest in SEO so we appear in search results", "Add phone cleaning as a paid add-on service"], answer: 1, explain: "The pain point is time and access (Place), so bring the repair to the customer." }
       ]
     },
     {
@@ -858,6 +949,144 @@ window.CA_DATA = {
         }
       ],
       modelAnswer: "A flat $12 hike works (contribution $80M → ~$87M at 13% churn; breakeven churn is 20%), but churn is concentrated among light users. Tiered pricing ($7 with ads, $12 Standard, Premium) yields ~$91M by keeping light users through ad revenue. The main risk is trade-down from Standard, so fence the tiers and pilot in one region before rolling out."
+    },
+    {
+      id: "phone-repair",
+      icon: "🔧",
+      title: "FixIt Phone Repair",
+      type: "Market sizing + Growth",
+      difficulty: 3,
+      client: "Walk-in phone-repair chain, Tokyo",
+      prompt: "Company A runs about five walk-in smartphone repair shops in Tokyo's busy districts such as Shinjuku and Ginza. Sales grew steadily, but growth has recently slowed. The owner asks how to accelerate growth over the next five years. First estimate Japan's annual market for smartphone repairs, then propose a growth strategy. Assumptions: iPhone and Android only; repairs at official stores count, but customers pay per repair (no warranty plans); business customers are excluded. (Figures are illustrative.)",
+      steps: [
+        {
+          kind: "mcq",
+          title: "Size it: the driver chain",
+          question: "Which driver chain best sizes the annual repair market under these assumptions?",
+          options: [
+            { text: "New phones sold per year × share that need a repair in their first year × average price per repair", feedback: "This misses the installed base: phones bought two or three years ago break too, and they're most of the repairs." },
+            { text: "Population × ownership × phones each × failures per phone × share repaired × price per repair", correct: true, feedback: "It covers every phone in use, how often they break, how many breakages get repaired, and what a repair costs." },
+            { text: "Population × ownership × yearly fee of an AppleCare-style plan × the share who sign up", feedback: "The prompt excludes warranty plans: customers pay per repair. This sizes a different market." },
+            { text: "Households × phones per household × yearly replacement rate × average new-phone price", feedback: "This sizes replacement phone purchases, not repairs." }
+          ]
+        },
+        {
+          kind: "mcq",
+          title: "Which drivers matter most?",
+          exhibit: { caption: "What we know about each driver", headers: ["Driver", "How much it varies across consumers"], rows: [["Ownership rate", "Near 100%, except in low-income households"], ["Phones per person", "Almost always one for personal use"], ["Failures per phone per year", "Varies with device price and how heavily it's used"], ["Share of failures repaired", "Varies with maker/carrier cover and finances"], ["Price per repair", "Base price stable; express and add-ons vary"]] },
+          question: "Which two drivers should shape how you segment the market?",
+          options: [
+            { text: "Ownership rate and the number of phones each person owns", feedback: "Both are nearly uniform, so splitting on them barely changes the answer." },
+            { text: "Population and the base price of a standard repair", feedback: "Population is what you split, not a reason to split it, and the base price is stable." },
+            { text: "Failures per year and the share of failures repaired", correct: true, feedback: "These two vary most from customer to customer, so they deserve a segmentation that captures the difference." },
+            { text: "Price per repair and the number of phones each owns", feedback: "Price varies only moderately and phones per person is uniform." }
+          ]
+        },
+        {
+          kind: "mcq",
+          title: "Pick the segmentation axis",
+          exhibit: { caption: "Hypotheses from the team", headers: ["Observation", "Driver it moves"], rows: [["Cheaper phones and Android models break more often", "Failures per year"], ["Phones kept for many years break more often", "Failures per year"], ["Young people use phones heavily (battery wear, accidents)", "Failures per year"], ["Owners of pricier phones more often have maker or carrier cover", "Share repaired"], ["Urgency of a repair depends on how the phone is used for work", "Share repaired"]] },
+          question: "Which single axis best captures both high-impact drivers?",
+          options: [
+            { text: "Age group", feedback: "Age explains usage intensity and urgency, but not who has repair cover or keeps old phones longer." },
+            { text: "Device brand (iPhone vs Android)", feedback: "Brand partly follows from income and only explains part of each driver." },
+            { text: "Region (Tokyo vs rest of Japan)", feedback: "Nothing in the hypotheses varies mainly by region." },
+            { text: "Household income", correct: true, feedback: "Income sits behind device price, how long phones are kept and who has repair cover, so it moves both drivers." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Compute one segment",
+          exhibit: { caption: "Segment: household income ¥2–4M", headers: ["Driver", "Assumption"], rows: [["Population", "30M people"], ["Ownership", "100%"], ["Phones each", "1"], ["Failures per phone per year", "1 in 5"], ["Share repaired", "50%"], ["Price per repair", "¥10,000"]] },
+          question: "What is this segment's annual repair market, in ¥ billion?",
+          answer: 30,
+          tolerance: 0.5,
+          unit: "¥ bn",
+          explain: "30M phones × 1/5 = 6M failures × 50% = 3M repairs × ¥10,000 = ¥30bn (300億円)."
+        },
+        {
+          kind: "math",
+          title: "Add up the segments",
+          exhibit: { caption: "Drivers by household income (phones each = 1 in every segment)", headers: ["Income / yr", "Population", "Ownership", "Failures / yr", "Share repaired", "Price"], rows: [["< ¥2M", "25M", "80%", "1 in 5", "50%", "¥10,000"], ["¥2–4M", "30M", "100%", "1 in 5", "50%", "¥10,000"], ["¥4–6M", "25M", "100%", "1 in 10", "70%", "¥10,000"], ["¥6–8M", "15M", "100%", "1 in 10", "70%", "¥15,000"], ["¥8–10M", "15M", "100%", "1 in 20", "90%", "¥15,000"], ["≥ ¥10M", "10M", "100%", "1 in 20", "90%", "¥15,000"]] },
+          question: "What is the total annual market across all segments, in ¥ billion? (whole number)",
+          answer: 100,
+          tolerance: 3,
+          unit: "¥ bn",
+          explain: "≈ 20 + 30 + 17.5 + 15.75 + 10.1 + 6.75 ≈ ¥100bn (about 1,000億円). Higher-income owners break phones less often, but they repair more of them and pay more per repair."
+        },
+        {
+          kind: "math",
+          title: "Supply-side check",
+          exhibit: { caption: "Supply-side data", headers: ["Item", "Value"], rows: [["Repair shops in a sample district", "5 per 100,000 residents"], ["Population (rounded)", "100M"], ["Typical shop size", "20 tsubo (≈ 66 m²)"], ["Sales per tsubo", "≈ ¥125,000 per month"]] },
+          question: "Scale the sample district up to Japan. What does the supply side suggest the market is, in ¥ billion?",
+          answer: 150,
+          tolerance: 3,
+          unit: "¥ bn",
+          explain: "Shops: 100M ÷ 100k × 5 = 5,000. Sales per shop: 20 × ¥125k × 12 = ¥30M per year. Market: 5,000 × ¥30M = ¥150bn. Watch the time unit: ¥125k per tsubo is monthly, so multiply by 12."
+        },
+        {
+          kind: "mcq",
+          title: "Interpret the checks",
+          exhibit: { caption: "Three views of the market", headers: ["Method", "Result"], rows: [["Demand model (by income segment)", "≈ ¥100bn"], ["Real usage: 100M people × ¥1,000 a year (one ¥10k repair per 10 years)", "≈ ¥100bn"], ["Supply side: 5,000 shops × ¥30M", "≈ ¥150bn"], ["Upper bound: everyone buys a ¥5–6k/yr cover plan", "≈ ¥500–600bn"]] },
+          question: "What do you conclude?",
+          options: [
+            { text: "Shops are the firmer data, so revise the estimate to ¥150bn and set aside the demand model", feedback: "Supply-side counts include accessories and other services, and a busy sample district overstates the national density." },
+            { text: "Same order of magnitude: keep ~¥100bn, noting shops also earn from accessories and services", correct: true, feedback: "Two independent methods agree and a third gives a sensible gap with a reason. The upper bound confirms you're well inside the ceiling." },
+            { text: "The cover-plan bound points nearer ¥500bn, so our failure rates are far too low and need raising", feedback: "That's a ceiling where everyone pays for cover every year, not an estimate of actual repairs." },
+            { text: "The methods differ by 50%, so the demand model is broken and should be rebuilt from scratch", feedback: "Within ~1.5× is consistent for a back-of-envelope check. Explain the gap rather than restart." }
+          ]
+        },
+        {
+          kind: "mcq",
+          title: "Where to play",
+          exhibit: { caption: "Company A's targets", headers: ["Axis", "Current target", "Not yet served"], rows: [["Region", "Busy districts of Tokyo", "Residential Tokyo; Osaka, Nagoya"], ["Customers", "Office workers in their 20s–40s", "Seniors, teens, women, companies"], ["Devices", "Mostly iPhone", "Android"]] },
+          question: "What should you do with this map before designing initiatives?",
+          options: [
+            { text: "Open shops in Osaka and Nagoya first, since new cities add revenue fastest", feedback: "That jumps to a move before deciding the target, and new cities are the costliest, slowest option." },
+            { text: "Add price band as a fourth axis so the map covers every possible dimension", feedback: "Axes that don't separate one target from another add noise. Drop them." },
+            { text: "Agree with the interviewer: grow the core or open new targets? Then pick one", correct: true, feedback: "Align on assumptions and choose the target first; the right moves depend on who you serve." },
+            { text: "Go after every untapped segment at once to capture the whole growth opportunity in one go", feedback: "Five shops can't serve everyone at once. Focus wins." }
+          ]
+        },
+        {
+          kind: "multi",
+          title: "How to win",
+          exhibit: { caption: "Chosen target: office workers in Tokyo, 20s–40s, on iPhone", headers: ["Their pain point", "4P"], rows: [["A phone is essential, so repairs must be fast", "Product"], ["They want their phone to last longer", "Product"], ["No time to visit an official store", "Place"], ["They don't think of us when something breaks", "Promotion"]] },
+          question: "Select ALL moves that directly answer these pain points.",
+          options: [
+            { text: "Same-day repair with a technician who comes to the customer", correct: true },
+            { text: "Loyalty points that reward customers for repeat repairs", correct: false },
+            { text: "24-hour online booking with a fully online service flow", correct: true },
+            { text: "Offer battery replacement alongside every repair", correct: true },
+            { text: "Cut all repair prices by 20% to beat nearby shops", correct: false },
+            { text: "Partner with big electronics retailers where people ask about repairs", correct: true }
+          ],
+          explain: "Speed, convenience, longer phone life and being found at the moment of need are the pain points. Repairs are rare, so loyalty points barely move anything, and price isn't this target's pain point, so a 20% cut just gives away margin."
+        },
+        {
+          kind: "mcq",
+          title: "Prioritise the drivers",
+          question: "Revenue = new customers × repairs per customer × revenue per repair. Where should Company A focus?",
+          options: [
+            { text: "Repairs per customer, because repeat visits are the cheapest revenue to win", feedback: "People need a repair only every few years, so frequency has little room to grow." },
+            { text: "New customers and revenue per repair, since repairs per customer stay low", correct: true, feedback: "Win more customers at the moment of need, and earn more per visit through express service and add-ons." },
+            { text: "Revenue per repair only, by raising prices across every service we offer", feedback: "Blanket price rises risk losing customers. Premium options and add-ons lift revenue per repair more safely." },
+            { text: "New customers only, by opening more shops in Tokyo's busiest districts", feedback: "That ignores revenue per repair, and more shops in the same districts mostly compete for the same customers." }
+          ]
+        },
+        {
+          kind: "mcq",
+          title: "Synthesis",
+          question: "The owner has one minute. What do you say?",
+          options: [
+            { text: "The market is ~¥100bn a year. Growth should come from repeat customers: a loyalty scheme and yearly check-ups will lift repairs per customer, the cheapest driver to move first.", feedback: "Repairs are rare, so this driver has little room." },
+            { text: "The market is ~¥150bn a year, based on shop counts. Open ten more shops in Shinjuku, Ginza and Shibuya, where our customers already are, and match rivals' prices.", feedback: "It trusts the weaker estimate, and more shops in the same districts mostly cannibalise existing ones." },
+            { text: "Market ≈ ¥100bn/yr, checked three ways. Win new busy workers (same-day on-site and online repair, retailer tie-ups); lift revenue per repair (express fees, battery add-ons).", correct: true, feedback: "Sized and sense-checked, a clear target, moves tied to pain points, and each move linked to a revenue driver." },
+            { text: "The market is ~¥100bn a year. Cut prices 20% to become Tokyo's cheapest, then expand to Osaka, Nagoya and corporate fleets to reach every untapped segment at once.", feedback: "Price isn't the target's pain point, and chasing every segment at once with five shops spreads A too thin." }
+          ]
+        }
+      ],
+      modelAnswer: "Japan's consumer phone-repair market is ≈ ¥100bn a year: segmented by income, because income drives both how often phones break and how many get repaired. The figure holds up against usage (≈ ¥100bn), supply side (≈ ¥150bn, incl. accessories) and a cover-plan ceiling (≈ ¥500–600bn). To accelerate growth, focus on busy office workers: same-day on-site and fully online repair plus retailer tie-ups to win new customers, and express fees and battery add-ons to lift revenue per repair. Repairs per customer is deprioritised because people repair rarely."
     }
   ],
 

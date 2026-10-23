@@ -399,6 +399,12 @@
             '<div class="card"><h3>Key points</h3><ul class="list-check">' + f.keyPoints.map(function (k) { return "<li>" + esc(k) + "</li>"; }).join("") + "</ul></div>" +
             '<div class="card"><h3>Common pitfalls</h3><ul class="list-check list-x">' + f.pitfalls.map(function (k) { return "<li>" + esc(k) + "</li>"; }).join("") + "</ul></div>" +
           "</div>" +
+          (f.tables || []).map(function (t) {
+            return '<div class="card" style="margin-top:16px"><h3>' + esc(t.caption) + '</h3><div class="exhibit"><table class="tbl text"><thead><tr>' +
+              t.headers.map(function (h) { return "<th>" + esc(h) + "</th>"; }).join("") + "</tr></thead><tbody>" +
+              t.rows.map(function (r) { return "<tr>" + r.map(function (c, ci) { return "<td>" + (ci === 0 ? "<b>" + esc(c) + "</b>" : esc(c)) + "</td>"; }).join("") + "</tr>"; }).join("") +
+              "</tbody></table></div></div>";
+          }).join("") +
           '<div class="card" style="margin-top:16px" id="quiz"><h3>Knowledge check</h3><p class="meta">+10 XP per correct answer · +30 XP for finishing the lesson</p>' + quizHTML() + "</div>" +
           '<div class="btn-row">' +
             (prev ? '<a class="btn ghost" href="#/framework/' + prev.id + '">← ' + esc(prev.name) + "</a>" : "") +
