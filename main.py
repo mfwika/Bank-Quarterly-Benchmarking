@@ -62,7 +62,8 @@ from bankbench.matcher import reconcile
 from bankbench.pattern import FALLBACK_METHODS, StrictMatcher, reference_period
 from bankbench.periods import EN_ABBR, detect_report_period, format_period_label
 from bankbench.source_parser import ocr_available, parse_source
-from bankbench.template_model import SECTION_NAMES, load_bank_models
+from bankbench.template_model import SECTION_NAMES, is_ref_formula, load_bank_models, numeric_value
+from bankbench.text import clean_formula
 from bankbench.writer import apply_to_workbook, write_issue_sheet
 from bankbench.compare import compare_workbooks
 from bankbench.ojk import merge_sources
@@ -288,10 +289,23 @@ def on_editor_change(state_key, editor_key, shown_index, matcher_key):
                     add_learned(st.session_state.learned, tr.section, tr.label, tr.parent, sr.label)
                 df.at[row_id, "Rumus"] = ""
                 df.at[row_id, "Metode"] = "Manual"
-            elif col in ("Nilai", "Rumus"):
-                df.at[row_id, col] = val
-                if col == "Nilai":
-                    df.at[row_id, "Rumus"] = ""
+            elif col == "Nilai":
+                df.at[row_id, "Nilai"] = val
+                df.at[row_id, "Rumus"] = ""  # angka diketik -> angka itu yang ditulis
+                df.at[row_id, "Metode"] = "Manual"
+            elif col == "Rumus":
+                f = clean_formula(val)
+                df.at[row_id, "Rumus"] = f
+                if not f:
+                    pass  # rumus dihapus -> Nilai yang ada dipakai
+                elif is_ref_formula(f):
+                    # rumus dengan referensi sel (mis. '=R444/R376*100') dihitung Excel; nilainya tidak
+                    # diketahui di sini -> dikosongkan supaya Cek total tidak memakai angka lama
+                    df.at[row_id, "Nilai"] = None
+                else:
+                    df.at[row_id, "Nilai"] = numeric_value(f)  # '=1202237-2985' -> 1199252
+                    if numeric_value(f) is None:
+                        df.at[row_id, "Catatan"] = "⚠ rumus tidak dikenali — cek penulisannya (mis. '=1202237-2985')"
                 df.at[row_id, "Metode"] = "Manual"
     st.session_state[state_key] = df
     st.session_state.pop(editor_key, None)
@@ -464,7 +478,8 @@ for tab, fk in zip(tabs, order):
         )
         st.caption("🟡 CEK = pola angka tidak ada, akun dikenali dari nama/memori — mohon dicek. "
                    "⚠ = tidak dikenali → dikosongkan. Kalau yakin, pilih **Akun di Laporan** "
-                   "atau ketik **Nilai** secara manual. Baris 'Formula' dihitung otomatis oleh Excel.")
+                   "atau ketik **Nilai** secara manual. Mengubah **Rumus** → Nilai & Cek total ikut dihitung ulang; "
+                   "mengetik **Nilai** → rumus sistem dihapus. Baris 'Formula' dihitung otomatis oleh Excel.")
 
         xc = npl_crosscheck({"section": row["Seksi"], "label": str(row["Akun (Template)"]).replace("↳", "").strip(),
                              "value": row["Nilai"], "formula": row["Rumus"]} for _, row in df.iterrows())

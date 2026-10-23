@@ -181,3 +181,17 @@ def parse_number(raw):
     except ValueError:
         return None
     return -v if neg else v
+
+
+def clean_formula(text):
+    """Rumus ketikan pengguna -> rumus Excel yang sah: tambah '=', buang pemisah ribuan
+    ('=1,202,237-2,985' / '=1.202.237-2.985' -> '=1202237-2985')."""
+    f = (text or "").strip()
+    if not f:
+        return ""
+    if not f.startswith("="):
+        f = "=" + f
+    f = re.sub(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])", lambda m: m.group(0).replace(",", ""), f)
+    if re.search(r"(?<![\d.,])\d{1,3}(?:\.\d{3}){2,}(?![\d.])", f):  # gaya Indonesia: titik = ribuan
+        f = re.sub(r"(?<![\d.,])\d{1,3}(?:\.\d{3})+(?![\d.])", lambda m: m.group(0).replace(".", ""), f)
+    return f
