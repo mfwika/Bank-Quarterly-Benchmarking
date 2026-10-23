@@ -1087,6 +1087,410 @@ window.CA_DATA = {
         }
       ],
       modelAnswer: "Japan's consumer phone-repair market is ≈ ¥100bn a year: segmented by income, because income drives both how often phones break and how many get repaired. The figure holds up against usage (≈ ¥100bn), supply side (≈ ¥150bn, incl. accessories) and a cover-plan ceiling (≈ ¥500–600bn). To accelerate growth, focus on busy office workers: same-day on-site and fully online repair plus retailer tie-ups to win new customers, and express fees and battery add-ons to lift revenue per repair. Repairs per customer is deprioritised because people repair rarely."
+    },
+    {
+      id: "charity",
+      icon: "💝",
+      title: "Kibou Foundation: Double the Donations",
+      type: "Growth (non-profit)",
+      difficulty: 3,
+      client: "Children's education charity, Japan",
+      prompt: "Kibou Foundation, a children's education charity, has raised about ¥1.0bn a year for three years. The board wants to double annual donations to ¥2.0bn within three years, while keeping fundraising costs at or below 20% of donations. How should it get there? (Figures are illustrative.)",
+      steps: [
+        {
+          kind: "mcq",
+          title: "Structure",
+          question: "Which structure lets you size the gap and find the levers?",
+          options: [
+            { text: "A funnel from awareness to consideration, first gift and loyalty, measured for each channel", feedback: "Useful for acquisition, but it doesn't tell you how much each donor group contributes or where money leaks." },
+            { text: "Donations = donors × gifts each × average gift, split by type: monthly, one-off, major, corporate", correct: true, feedback: "Quantitative and MECE, and donor types behave very differently, so the split matters." },
+            { text: "Programme quality, reputation, transparency and staff: the reasons people choose one charity over another", feedback: "These are inputs to giving, not a structure you can quantify to close a ¥1bn gap." },
+            { text: "Ansoff: current donors and causes, new causes, new donor groups and new countries", feedback: "It lists growth avenues but loses donor economics such as retention and gift size." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Where the money comes from",
+          exhibit: { caption: "Donor base (last year)", headers: ["Donor type", "Donors", "Gifts / yr", "Average gift"], rows: [["Monthly individual", "20,000", "12", "¥2,000"], ["One-off individual", "60,000", "1", "¥5,000"], ["Major donors", "100", "1", "¥1,500,000"], ["Corporate", "14", "1", "¥5,000,000"]] },
+          question: "What share of total donations comes from monthly donors? (%)",
+          answer: 48,
+          tolerance: 0.5,
+          unit: "%",
+          explain: "Monthly: 20,000 × 12 × ¥2,000 = ¥480M. One-off: ¥300M. Major: ¥150M. Corporate: ¥70M. Total ¥1,000M, so monthly donors give 48% even though they're only a quarter of donors."
+        },
+        {
+          kind: "math",
+          title: "The leaky bucket",
+          exhibit: { caption: "Share of each group's donations that comes back next year", headers: ["Donor type", "Retention"], rows: [["Monthly individual", "85%"], ["One-off individual", "30%"], ["Major donors", "80%"], ["Corporate", "70%"]] },
+          question: "If Kibou acquired no new donors at all, what would next year's donations be? (¥ million)",
+          answer: 667,
+          tolerance: 5,
+          unit: "¥M",
+          explain: "480 × 85% + 300 × 30% + 150 × 80% + 70 × 70% = 408 + 90 + 120 + 49 = ¥667M. A third of the base leaks away every year, so Kibou must raise ~¥333M of new money just to stand still."
+        },
+        {
+          kind: "mcq",
+          title: "So what?",
+          question: "What does the leaky bucket tell you?",
+          options: [
+            { text: "Corporates have the largest average gift, so the fastest way to ¥2bn is to sign far more companies", feedback: "Corporates are only 7% of donations and keep 70%. The biggest leak is elsewhere." },
+            { text: "Major donors keep 80%, so the problem is their small number; recruit 500 more within a year", feedback: "Major-donor pipelines take years to build, and they aren't where the money leaks." },
+            { text: "Fix retention first: most of the leak is one-off givers, so convert them into monthly donors", correct: true, feedback: "One-off donors lose 70% a year. Turning even part of them into 85%-retention monthly donors plugs the bucket." },
+            { text: "Ask every donor to give 50% more; higher average gifts close the gap without new donors", feedback: "A blanket ask would raise lapse rates, and even +50% on a leaking base falls short of 2×." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Lifetime value",
+          question: "A new monthly donor gives ¥24,000 a year and 85% stay each year. What are their expected lifetime donations? (¥ thousand)",
+          answer: 160,
+          tolerance: 2,
+          unit: "¥k",
+          explain: "24,000 × (1 + 0.85 + 0.85² + …) = 24,000 ÷ (1 − 0.85) = ¥160,000. A one-off donor (¥5,000, 30% retention) is worth only 5,000 ÷ 0.7 ≈ ¥7,100."
+        },
+        {
+          kind: "mcq",
+          title: "Where to spend",
+          exhibit: { caption: "Acquisition cost per new donor", headers: ["Channel", "Cost per donor"], rows: [["Monthly donor (face-to-face, digital)", "¥30,000"], ["One-off donor (campaigns, events)", "¥4,000"]] },
+          question: "Which acquisition deserves the budget?",
+          options: [
+            { text: "One-off donors: at ¥4,000 each they're the cheapest way to add donors quickly", feedback: "Cheap to acquire but worth only ~¥7,100 each, under 2× their cost, and most lapse within a year." },
+            { text: "Neither: acquisition is too expensive, so spend everything on major-donor events", feedback: "Monthly donors return over 5× their cost. Dropping acquisition leaves the leak unfixed." },
+            { text: "Split the budget evenly, so both donor types grow at the same pace", feedback: "Equal spend ignores that one channel returns ~3× more per yen than the other." },
+            { text: "Monthly donors: about ¥160k lifetime value for ¥30k, over 5× return per yen spent", correct: true, feedback: "Lifetime value ÷ acquisition cost: ~5.3× for monthly vs ~1.8× for one-off." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Size the push",
+          question: "Suppose monthly giving must add ¥600M a year by year 3. At ¥24,000 per donor per year, how many extra active monthly donors are needed? (thousands)",
+          answer: 25,
+          tolerance: 0.5,
+          unit: "k donors",
+          explain: "600M ÷ 24,000 = 25,000 active donors. Because 15% of new donors lapse each year, gross recruitment must be higher, roughly 30,000–35,000 over three years. At ¥30,000 each that's ~¥1bn, or ~¥300–350M a year: inside the 20% cost cap once donations approach ¥2bn, but tight in year one."
+        },
+        {
+          kind: "multi",
+          title: "Close the rest of the gap",
+          question: "Select ALL levers that close the gap while respecting the 20% cost cap.",
+          options: [
+            { text: "Invite recent one-off donors to switch to monthly giving", correct: true },
+            { text: "Run a national TV campaign to build brand awareness", correct: false },
+            { text: "Ask monthly donors to raise their gift from ¥2,000 to ¥2,500", correct: true },
+            { text: "Build a major-donor programme with personal stewardship", correct: true },
+            { text: "Hold a gala dinner every month to meet wealthy donors", correct: false },
+            { text: "Sign employee matched-giving deals with corporate partners", correct: true }
+          ],
+          explain: "Conversions and upgrades target warm donors cheaply; major donors and matched giving bring large gifts at low cost per yen raised. TV and monthly galas are expensive per yen raised and would break the 20% cap."
+        },
+        {
+          kind: "mcq",
+          title: "Synthesis",
+          question: "The board chair has one minute. What do you say?",
+          options: [
+            { text: "Doubling is feasible if we spend more: a national TV campaign and monthly galas will raise awareness, and awareness drives donations across every donor type we have.", feedback: "Expensive per yen raised; it would break the 20% cap and doesn't fix retention." },
+            { text: "A third of donations leaks away yearly, mostly one-off givers. Plug it: convert them to monthly, recruit 30k+ monthly donors, upgrade gifts, add major and matched giving.", correct: true, feedback: "The diagnosis (leaky bucket), the economics (monthly donors' lifetime value) and a sized plan within the cap." },
+            { text: "Corporates give the largest gifts, so we should focus entirely on signing companies: 200 new corporate partners at ¥5M each would add the ¥1bn we need within three years.", feedback: "Signing 200 corporates from today's 14 isn't realistic, and corporate donors lapse at 30% a year." },
+            { text: "One-off donors are the cheapest to acquire at ¥4,000 each, so we should triple campaign spend on them to add 200,000 new donors, which closes the gap in about two years.", feedback: "One-off donors are worth under 2× their cost and 70% lapse within a year. The bucket keeps leaking." }
+          ]
+        }
+      ],
+      modelAnswer: "Donations are ¥1.0bn, half from monthly donors, but a third of the base leaks away every year (¥667M with no new donors), mostly one-off givers. Monthly donors are worth ~¥160k over their lifetime for ~¥30k to acquire (>5×), so prioritise them: convert one-off donors, recruit 30,000+ new monthly donors over three years, upgrade gifts, and add a major-donor programme and matched giving. Avoid TV and frequent galas, which would breach the 20% cost cap."
+    },
+    {
+      id: "ramen",
+      icon: "🍜",
+      title: "Menya Tokyo: Triple the Sales",
+      type: "Growth (capacity)",
+      difficulty: 3,
+      client: "Friend's ramen shops, Tokyo",
+      prompt: "A friend owns three ramen shops in Tokyo (30 seats each, open 11:00–23:00, 360 days a year). Total sales are ¥300M a year at an average spend of ¥1,100 per customer. She wants to triple sales to ¥900M within five years. What should she do? (Figures are illustrative.)",
+      steps: [
+        {
+          kind: "mcq",
+          title: "Structure",
+          question: "How would you structure the growth question?",
+          options: [
+            { text: "Revenue vs costs for each shop, then the fixed and variable lines inside each one", feedback: "That's a profitability tree. The question is about growing sales." },
+            { text: "Food quality, service speed, ambience and price: what makes customers choose a ramen shop", feedback: "Inputs to demand, but you can't size how far each one gets you towards ¥900M." },
+            { text: "Same-store sales (seats × turns × spend × days) vs new sales (new shops, delivery, retail)", correct: true, feedback: "It shows how far the existing shops can stretch before you need new sources of sales." },
+            { text: "Customers, competitors and the company, followed by a full review of the 4Ps", feedback: "A marketing lens that won't reveal the capacity limit, which is the crux here." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "How busy are the shops?",
+          question: "How many customers does each shop serve per day? (whole number)",
+          answer: 253,
+          tolerance: 3,
+          unit: "customers",
+          explain: "¥300M ÷ 3 shops ÷ 360 days ÷ ¥1,100 ≈ 253 customers per shop per day, or ~8.4 turns per seat."
+        },
+        {
+          kind: "mcq",
+          title: "Read the utilisation",
+          exhibit: { caption: "Seat utilisation by time of day (average shop)", headers: ["Daypart", "Utilisation", "Note"], rows: [["Lunch 11–14", "95%", "Queue outside most days"], ["Afternoon 14–17", "25%", ""], ["Dinner 17–21", "80%", ""], ["Late 21–23", "40%", ""]] },
+          question: "What does this tell you about same-store growth?",
+          options: [
+            { text: "Lunch is full, so extending opening hours past 23:00 is the main way to grow each shop", feedback: "Late evening is only 40% full already. Adding hours adds more empty seats." },
+            { text: "Lunch is capped; same-store growth must come from quiet hours and higher spend per visit", correct: true, feedback: "You can't sell more lunch seats, but afternoon and late slots have spare capacity, and spend per customer can rise." },
+            { text: "Utilisation looks healthy overall, so the shops are near their limit and only new shops help", feedback: "Afternoon is 25% and late 40%: there's still room inside the existing shops." },
+            { text: "The queue at lunch shows demand is strong, so raising lunch prices by 30% is the answer", feedback: "A small premium might work, but 30% risks the core lunch crowd and won't get near 3×." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Same-store ceiling",
+          question: "Start from 250 customers per shop per day. If off-peak offers add 60 customers per shop per day and side dishes and drinks lift average spend to ¥1,250, what are total annual sales? (¥ million)",
+          answer: 418.5,
+          tolerance: 5,
+          unit: "¥M",
+          explain: "(250 + 60) × ¥1,250 × 360 days × 3 shops ≈ ¥418.5M, about 1.4× today. The existing shops alone can't reach 3×."
+        },
+        {
+          kind: "math",
+          title: "How many new shops?",
+          question: "To reach ¥900M, how many more shops are needed if each new shop matches the improved ~¥139.5M a year? (round up)",
+          answer: 4,
+          tolerance: 0.01,
+          unit: "shops",
+          explain: "(900 − 418.5) ÷ 139.5 ≈ 3.45, so 4 new shops: 7 in total, opened within five years."
+        },
+        {
+          kind: "mcq",
+          title: "Choose the vehicle",
+          exhibit: { caption: "Growth vehicles", headers: ["Option", "Economics"], rows: [["Open owned shops", "¥40M capex each, ~2.5-year payback, ~9 months to open"], ["Franchise", "Partner pays 5% of its shop's sales as royalty; fast to scale"], ["Delivery apps", "+~10% sales per shop, 30% commission"], ["Packaged ramen in supermarkets", "~¥50M sales potential; needs a factory partner"]] },
+          question: "Which path best reaches ¥900M of HER sales in five years?",
+          options: [
+            { text: "Franchise 20 shops quickly: partners carry the capex, and the brand reaches 3× the reach", feedback: "Trap: franchise sales aren't her sales. She'd book only a 5% royalty, about ¥7M per shop." },
+            { text: "Go big on delivery apps in every shop, since they add sales with no extra seats needed", feedback: "+10% per shop at 30% commission is a top-up, not a path to 3×." },
+            { text: "Open ~4 owned shops over five years, plus off-peak and spend plays; delivery as a top-up", correct: true, feedback: "The math says ~4 new shops; owned shops count fully as her sales, and the capex fits a ~2.5-year payback." },
+            { text: "Launch packaged ramen in supermarkets nationwide to tap demand beyond Tokyo's shops", feedback: "Around ¥50M of potential, a nice add-on, but far short of the ¥480M gap." }
+          ]
+        },
+        {
+          kind: "multi",
+          title: "Risks",
+          question: "Select ALL risks to manage when opening four shops.",
+          options: [
+            { text: "Finding head chefs and managers who keep the recipe consistent", correct: true },
+            { text: "New shops placed too close cannibalising the existing three", correct: true },
+            { text: "Prime-location rents eating most of each shop's margin", correct: true },
+            { text: "Ramen falling out of fashion in Tokyo within five years", correct: false },
+            { text: "The founder stretched too thin across seven shops", correct: true },
+            { text: "Noodle suppliers unable to deliver to more locations", correct: false }
+          ],
+          explain: "Talent, cannibalisation, rent and founder bandwidth are the classic risks when a small chain scales. There's no evidence ramen demand is fading (the lunch queue says the opposite), and supply is a commodity."
+        },
+        {
+          kind: "mcq",
+          title: "Synthesis",
+          question: "What do you tell your friend?",
+          options: [
+            { text: "Lunch is full and afternoons are empty. Fill quiet hours and lift spend (≈ ¥420M), then open ~4 owned shops over five years, each ~¥140M a year, to reach ~¥900M.", correct: true, feedback: "It quantifies the same-store ceiling, sizes the gap, and picks the vehicle whose sales actually count." },
+            { text: "Franchise aggressively: twenty franchised shops would triple the brand's sales within three years, with partners carrying the capex and the risk of every new location.", feedback: "Franchise sales go to the partners. She'd book only a 5% royalty." },
+            { text: "Raise prices 30% across the menu and extend opening hours to 2am. The lunch queue proves demand is strong, so the three shops can triple sales without any new investment.", feedback: "Late hours are already 40% empty, and 30% price rises risk the core lunch crowd. The math can't reach 3×." },
+            { text: "Partner with every delivery app and launch packaged ramen in supermarkets. Both add sales without new shops, so they're the lowest-risk way to triple revenue.", feedback: "Together they add perhaps ¥80–100M, nowhere near the ¥600M needed." }
+          ]
+        }
+      ],
+      modelAnswer: "Each shop serves ~253 customers a day and lunch is at capacity, so same-store levers (off-peak offers, higher spend) take sales to only ~¥420M (1.4×). The remaining ~¥480M needs about four new owned shops at ~¥140M each over five years. Franchising won't count towards her sales (5% royalty only), and delivery or retail are top-ups. Manage talent, cannibalisation, rent and founder bandwidth."
+    },
+    {
+      id: "branches",
+      icon: "🏛️",
+      title: "Bank Raya: Branch Network Reset",
+      type: "Cost reduction (banking)",
+      difficulty: 3,
+      client: "Mid-size Indonesian bank",
+      prompt: "Bank Raya runs 400 branches. Over three years branch transactions fell 35% as customers moved to mobile, but branch costs barely changed and now total Rp 2.0 trillion a year. The CEO wants to cut branch network costs by 25% within two years without losing deposits. What should the bank do? (Figures are illustrative.)",
+      steps: [
+        {
+          kind: "mcq",
+          title: "Structure",
+          question: "Which structure fits the CEO's question?",
+          options: [
+            { text: "Cut 25% of the cost of every branch evenly, so the burden is shared fairly across regions", feedback: "That's an answer, not a structure, and it treats a flagship like a rural outlet." },
+            { text: "Branch economics by type (deposits vs cost), then keep, convert, merge or close per segment", correct: true, feedback: "It balances cost saved against deposits at risk, branch type by branch type." },
+            { text: "Revenue vs costs for the whole bank, then each cost line from IT to head office to branches", feedback: "Too broad: the brief is the branch network, and it ignores deposits at risk." },
+            { text: "Customers, competitors and the company, then the bank's digital strategy and its brand", feedback: "This doesn't quantify savings or deposit risk." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "How big is the ask?",
+          question: "The target is 25% of Rp 2.0T. If closing an average branch (Rp 5B cost) saves 70% of its cost, how many average branches would need to close? (round up)",
+          answer: 143,
+          tolerance: 1,
+          unit: "branches",
+          explain: "Target Rp 500B ÷ (Rp 5B × 70%) = 143 branches, over a third of the network. That's far too many to close without losing deposits, so you need other levers too."
+        },
+        {
+          kind: "mcq",
+          title: "Where to start",
+          exhibit: { caption: "Branch segments", headers: ["Type", "Branches", "Avg deposits", "Avg cost / yr", "Note"], rows: [["Urban flagship", "40", "Rp 800B", "Rp 9.0B", "Top corporate & priority clients"], ["Urban standard", "160", "Rp 250B", "Rp 5.0B", "70 within 1 km of another branch"], ["Suburban", "120", "Rp 150B", "Rp 4.5B", "Mostly teller transactions"], ["Rural", "80", "Rp 60B", "Rp 3.5B", "Often the only bank nearby"]] },
+          question: "Where should rationalisation start?",
+          options: [
+            { text: "Rural branches: they hold the fewest deposits per branch, so closing them hurts least", feedback: "Trap: they're often the only bank nearby, so customers would leave the bank, and they're the cheapest to run." },
+            { text: "Urban flagships: at Rp 9B each they're the costliest, so each one saves the most", feedback: "They anchor the bank's most valuable clients. Closing them risks far more deposits than they cost." },
+            { text: "The 70 overlapping urban branches: customers can walk to another, so deposits stay", correct: true, feedback: "Overlap means low deposit risk per rupiah saved: the classic first move." },
+            { text: "Suburban branches: they mostly process teller transactions that are moving online anyway", feedback: "A good candidate for a lighter format, but not where closures are safest." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Merge the overlaps",
+          question: "Merging the 70 overlapping urban branches saves 70% of their Rp 5B cost each. Total saving? (Rp billion)",
+          answer: 245,
+          tolerance: 1,
+          unit: "Rp B",
+          explain: "70 × Rp 5B × 70% = Rp 245B, about half the target."
+        },
+        {
+          kind: "math",
+          title: "Price the deposit risk",
+          question: "Each merged branch holds Rp 250B of deposits. If 5% of those deposits leave the bank and net interest margin is 4%, how much net interest income is lost each year? (Rp billion)",
+          answer: 35,
+          tolerance: 0.5,
+          unit: "Rp B",
+          explain: "70 × Rp 250B × 5% = Rp 875B of deposits lost × 4% = Rp 35B a year, well below the Rp 245B saved. The merger pays, but deposit retention must be managed."
+        },
+        {
+          kind: "math",
+          title: "Lighter formats",
+          exhibit: { caption: "Format conversions", headers: ["Conversion", "Branches", "Cost before → after"], rows: [["Suburban → 'light' digital-assisted branch", "60", "Rp 4.5B → Rp 2.0B"], ["Rural → agent-assisted outlet", "50", "Rp 3.5B → Rp 1.4B"]] },
+          question: "How much do these conversions save in total each year? (Rp billion)",
+          answer: 255,
+          tolerance: 1,
+          unit: "Rp B",
+          explain: "60 × 2.5 + 50 × 2.1 = 150 + 105 = Rp 255B. Together with the mergers (Rp 245B) that's Rp 500B: exactly 25%, without closing a single rural point of presence."
+        },
+        {
+          kind: "multi",
+          title: "Protect the deposits",
+          question: "Select ALL safeguards to build into the roll-out.",
+          options: [
+            { text: "Move customers onto mobile with assisted onboarding before any merger", correct: true },
+            { text: "Announce every closure nationwide on the same day for transparency", correct: false },
+            { text: "Assign relationship managers to the top depositors of merged branches", correct: true },
+            { text: "Pilot in one region and track deposit attrition before scaling", correct: true },
+            { text: "Start with the flagships, since they deliver the biggest saving", correct: false },
+            { text: "Plan the regulator's (OJK) requirements for closures and format changes", correct: true }
+          ],
+          explain: "Migrate customers first, protect the largest relationships, pilot and measure, and plan regulatory requirements. A big-bang announcement invites a deposit run, and flagships hold the most valuable clients."
+        },
+        {
+          kind: "mcq",
+          title: "Synthesis",
+          question: "Your recommendation to the CEO?",
+          options: [
+            { text: "Close the 80 rural branches and 60 of the suburban ones. They hold the fewest deposits per branch and cost Rp 3.5–4.5B each, which together delivers about Rp 400B of savings.", feedback: "It closes the bank's only presence in many towns and still misses the target." },
+            { text: "Merge the 70 overlapping urban branches (Rp 245B) and convert 60 suburban and 50 rural branches to lighter formats (Rp 255B): 25%, for ~Rp 35B/yr of deposit-income risk.", correct: true, feedback: "It hits the target exactly, quantifies the downside, and protects deposits and rural presence." },
+            { text: "Freeze hiring across all 400 branches and cut every branch budget by 25%. It's fair across regions, needs no closures, and avoids any deposit risk from moving customers.", feedback: "Across-the-board cuts degrade service everywhere, and branches with fixed costs can't absorb 25%." },
+            { text: "Keep the network and raise fees on branch transactions instead. Customers will move to mobile faster, and the fee income offsets the branch costs within two years.", feedback: "That's a revenue lever. The brief was to cut costs, and fee rises risk deposits." }
+          ]
+        }
+      ],
+      modelAnswer: "Closing average branches would mean shutting over a third of the network. Instead, segment the network: merge the 70 overlapping urban branches (Rp 245B saved; ~Rp 35B/yr of interest income at risk if 5% of deposits leave), and convert 60 suburban and 50 rural branches to lighter digital- or agent-assisted formats (Rp 255B). That's Rp 500B, or 25%. Protect deposits with assisted digital migration, relationship managers for top depositors, a regional pilot, and early planning of OJK requirements."
+    },
+    {
+      id: "ev-us",
+      icon: "🚗",
+      title: "Kaze Motors: Winning in US EVs",
+      type: "Growth prioritisation",
+      difficulty: 3,
+      client: "Japanese carmaker",
+      prompt: "Kaze Motors, a Japanese carmaker, sells 2.25M cars a year worldwide, 40% of them in the US, where its overall share is 6%. The CEO wants global sales up 20% in five years and asks where to focus. US car sales are ~15M a year and growing ~1% a year; electric vehicles (EVs) are 10% of US sales today and expected to reach 30% in five years. (Figures are illustrative.)",
+      steps: [
+        {
+          kind: "mcq",
+          title: "First move",
+          question: "Where do you start?",
+          options: [
+            { text: "Map sales by region and powertrain: find the biggest growing pools and where our share lags", correct: true, feedback: "Prioritise by impact: the size and growth of each pool against our position in it." },
+            { text: "Design a social-media campaign for the US, since awareness is what drives car purchases there", feedback: "A classic stumble: a small lever before you know where the big lever is." },
+            { text: "Cut prices 10% in every market to win volume quickly ahead of competitors", feedback: "Price cuts everywhere are expensive and may not touch the real gap." },
+            { text: "Launch a new luxury brand to raise margins and attract younger buyers", feedback: "An answer to a different question. The goal is volume growth." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "Size the US EV pool",
+          question: "How large will the US EV market be in five years? (million units, one decimal)",
+          answer: 4.7,
+          tolerance: 0.1,
+          unit: "M units",
+          explain: "15M × 1.01⁵ ≈ 15.8M cars × 30% ≈ 4.7M EVs a year, about triple today's 1.5M."
+        },
+        {
+          kind: "math",
+          title: "Standing still",
+          exhibit: { caption: "Kaze's US share by powertrain", headers: ["Segment", "Kaze share"], rows: [["Non-EV (petrol, hybrid)", "6.5%"], ["EV", "1.5%"]] },
+          question: "If Kaze keeps these shares, what are its US sales in five years? (thousand units; non-EV market ≈ 11.0M)",
+          answer: 789,
+          tolerance: 6,
+          unit: "k units",
+          explain: "EV: 4.73M × 1.5% ≈ 71k. Non-EV: 11.04M × 6.5% ≈ 718k. Total ≈ 789k, down from 900k today, even though the US market grows."
+        },
+        {
+          kind: "mcq",
+          title: "So what?",
+          question: "What does this tell the CEO?",
+          options: [
+            { text: "The US is shrinking for Kaze, so shift investment to Europe and Asia where its shares are higher", feedback: "The US market is growing. Kaze is losing because its weakest segment is the one growing fastest." },
+            { text: "Kaze's non-EV share is strong, so doubling down on petrol models will defend US volume", feedback: "That pool shrinks from ~13.5M to ~11M cars. Defending it can't offset the shift." },
+            { text: "The EV shift costs ~110k US units; winning US EV share is the biggest lever on the 20% goal", correct: true, feedback: "The biggest, fastest-growing pool is where Kaze is weakest: that's where impact is." },
+            { text: "The loss is small next to 2.25M global sales, so the focus should be a broad brand campaign", feedback: "110k is a quarter of the 450k growth target. It's not small." }
+          ]
+        },
+        {
+          kind: "math",
+          title: "What share is needed?",
+          question: "What US EV share does Kaze need in five years just to hold US volume at 900k? (%, one decimal)",
+          answer: 3.9,
+          tolerance: 0.15,
+          unit: "%",
+          explain: "Non-EV gives ~718k, so EVs must supply ~182k. 182k ÷ 4.73M ≈ 3.9%: Kaze must more than double its EV share just to stand still, before any growth."
+        },
+        {
+          kind: "mcq",
+          title: "What wins EV buyers?",
+          exhibit: { caption: "US EV buyers' top purchase criterion, and Kaze's gap", headers: ["Criterion", "Share of buyers", "Kaze vs leader"], rows: [["Range per charge", "38%", "−25%"], ["Price", "25%", "On par"], ["Charging access", "20%", "No network partner"], ["Brand", "10%", "Strong"], ["In-car software", "7%", "Slightly behind"]] },
+          question: "Which product priority comes first?",
+          options: [
+            { text: "Upgrade the in-car software, since the experience is what younger EV buyers notice", feedback: "Only 7% rank it first, and Kaze is only slightly behind." },
+            { text: "Close the range gap: it's the top criterion and where Kaze trails the leader most", correct: true, feedback: "Weight × gap: 38% of buyers and a 25% deficit. That's the biggest lever." },
+            { text: "Cut EV prices further to undercut rivals and win price-sensitive first-time buyers", feedback: "Kaze is already on par on price, so a cut gives away margin on a criterion it isn't losing." },
+            { text: "Invest in brand campaigns, since a strong brand drives trust in new technology", feedback: "Brand is already a strength and only 10% rank it first." }
+          ]
+        },
+        {
+          kind: "multi",
+          title: "Build the plan",
+          question: "Select ALL initiatives that directly raise Kaze's US EV share.",
+          options: [
+            { text: "Next-generation battery to close the 25% range gap", correct: true },
+            { text: "Expand the petrol SUV line-up in the US", correct: false },
+            { text: "Partner with a fast-charging network for Kaze drivers", correct: true },
+            { text: "Make an influencer campaign the core of the strategy", correct: false },
+            { text: "Build batteries locally to cut tariffs and logistics cost", correct: true },
+            { text: "Bundle home-charger installation into every EV sale", correct: true }
+          ],
+          explain: "Range, charging access and cost position decide EV share. More petrol SUVs target the shrinking pool, and an influencer campaign is a small lever posing as a strategy."
+        },
+        {
+          kind: "mcq",
+          title: "Synthesis",
+          question: "What's your answer to the CEO?",
+          options: [
+            { text: "Focus on Europe and Asia, where our shares are higher, and keep the US steady. A broad brand campaign there will lift awareness and should deliver the 20% within five years.", feedback: "It walks away from the biggest, fastest-growing pool, where the loss is happening." },
+            { text: "Win US EVs: holding today's shares loses ~110k US units, and holding volume alone needs ~3.9% EV share. Close the 25% range gap, add a charging partner, and localise batteries.", correct: true, feedback: "Impact-first: it sizes the shift, sets the share target, and picks levers by buyer weight × gap." },
+            { text: "Defend our 6.5% non-EV share with new petrol SUVs and hybrids. That's where Kaze is strongest, so it's the lowest-risk way to protect US volume over the next five years.", feedback: "The non-EV pool shrinks by ~2.5M cars. Defending it can't offset the shift." },
+            { text: "Cut EV prices 15% in the US to become the cheapest option, and back it with a large influencer campaign. Price and awareness are what new EV buyers respond to first.", feedback: "Price isn't Kaze's gap (range is), and the campaign is a small lever." }
+          ]
+        }
+      ],
+      modelAnswer: "US EVs grow from ~1.5M to ~4.7M a year, but Kaze holds only 1.5% of them. Keeping today's shares would cut its US sales from 900k to ~789k, and just holding volume requires ~3.9% EV share. Range per charge is the top buying criterion (38% of buyers) and Kaze trails by 25%, so prioritise a next-generation battery, a fast-charging partnership, home-charger bundles and local battery production. Growth beyond holding volume then comes from pushing EV share further."
     }
   ],
 
